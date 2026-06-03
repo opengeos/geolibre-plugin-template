@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve } from "path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import dts from "vite-plugin-dts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -23,7 +26,7 @@ export default defineConfig({
         index: resolve(__dirname, "src/index.ts"),
         react: resolve(__dirname, "src/react.ts"),
       },
-      name: "MapLibrePluginTemplate",
+      name: "GeoLibrePluginTemplate",
       formats: ["es", "cjs"],
       fileName: (format, entryName) => {
         const ext = format === "es" ? "mjs" : "cjs";

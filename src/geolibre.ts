@@ -50,7 +50,27 @@ function createControl(): PluginControl {
 }
 
 function isPluginState(value: unknown): value is Partial<PluginState> {
-  return Boolean(value && typeof value === "object");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if ("collapsed" in candidate && typeof candidate.collapsed !== "boolean") {
+    return false;
+  }
+  if ("panelWidth" in candidate && typeof candidate.panelWidth !== "number") {
+    return false;
+  }
+  if (
+    "data" in candidate &&
+    (typeof candidate.data !== "object" ||
+      candidate.data === null ||
+      Array.isArray(candidate.data))
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export const plugin: GeoLibrePlugin = {
