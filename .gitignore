@@ -12,6 +12,8 @@ node_modules
 dist
 dist-ssr
 *.local
+geolibre-plugin/dist/
+geolibre-plugin/*.zip
 
 # Editor directories and files
 .vscode/*

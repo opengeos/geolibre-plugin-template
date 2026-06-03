@@ -9,8 +9,11 @@ docs/
 tsconfig.json
 tsconfig.build.json
 vite.config.ts
+vite.geolibre.config.ts
 vite.examples.config.ts
 vitest.config.ts
+scripts/
+geolibre-plugin/
 .gitignore
 .eslintrc
 .prettierrc

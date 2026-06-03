@@ -1,7 +1,7 @@
 {
-  "name": "maplibre-gl-plugin-template",
-  "version": "0.2.2",
-  "description": "A template for creating MapLibre GL JS plugins with TypeScript and React support",
+  "name": "geolibre-plugin-template",
+  "version": "0.1.0",
+  "description": "A template for creating GeoLibre plugins with MapLibre GL JS controls",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -27,7 +27,7 @@
         "default": "./dist/react.cjs"
       }
     },
-    "./style.css": "./dist/maplibre-gl-plugin-template.css"
+    "./style.css": "./dist/geolibre-plugin-template.css"
   },
   "files": [
     "dist",
@@ -39,17 +39,21 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.build.json && vite build",
+    "build": "npm run build:lib && npm run build:geolibre",
+    "build:lib": "tsc -p tsconfig.build.json && vite build",
+    "build:geolibre": "vite build --config vite.geolibre.config.ts",
     "build:examples": "vite build --config vite.examples.config.ts",
+    "package:geolibre": "npm run build:geolibre && node scripts/package-geolibre-plugin.mjs",
     "preview": "vite preview",
     "test": "vitest --run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build:lib"
   },
   "keywords": [
+    "geolibre",
     "maplibre",
     "maplibre-gl",
     "map",
@@ -62,7 +66,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/maplibre-gl-plugin-template.git"
+    "url": "https://github.com/your-username/geolibre-plugin-template.git"
   },
   "peerDependencies": {
     "maplibre-gl": ">=3.0.0",
