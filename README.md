@@ -54,6 +54,22 @@ Copy the zip into GeoLibre Desktop's app data `plugins/` directory and restart G
 
 Customize the GeoLibre wrapper in `src/geolibre.ts` and the manifest in `geolibre-plugin/plugin.json`. The manifest `id`, `name`, and `version` must match the exported plugin in `src/geolibre.ts`.
 
+For the GeoLibre web app, serve the unpacked plugin with CORS enabled:
+
+```bash
+npm run package:geolibre
+npm run serve:geolibre -- 8000
+```
+
+Then add this manifest URL in GeoLibre Settings > Plugins:
+
+```text
+http://localhost:8000/plugin.json
+```
+
+Using `python -m http.server` for this cross-origin web app case is not enough
+because it does not send `Access-Control-Allow-Origin`.
+
 ## Quick Start
 
 ### Vanilla JavaScript/TypeScript
