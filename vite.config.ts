@@ -9,10 +9,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [
     react(),
+    // Emit declarations to dist/types (matching the package.json "exports"
+    // map). CSS side-effect imports are stripped automatically. bundleTypes
+    // rolls each entry into a single self-contained .d.ts so consumers under
+    // Node16 module resolution have no unresolved relative imports, and the
+    // cjs outDir adds matching .d.cts files for the "require" condition.
     dts({
-      include: ["src"],
-      outDir: "dist/types",
-      rollupTypes: false,
+      tsconfigPath: resolve(__dirname, "tsconfig.build.json"),
+      entryRoot: resolve(__dirname, "src"),
+      bundleTypes: true,
+      outDirs: ["dist/types", { dir: "dist/types", moduleFormat: "cjs" }],
     }),
   ],
   resolve: {
