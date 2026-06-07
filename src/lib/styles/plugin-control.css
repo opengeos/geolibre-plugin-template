@@ -3,13 +3,69 @@
  *
  * This stylesheet provides the base styles for the plugin control.
  * Customize these styles to match your plugin's design.
+ *
+ * Colors are defined as CSS custom properties so the control adapts to the
+ * system theme (light/dark) via `prefers-color-scheme`. Override these
+ * variables to apply a custom theme.
  */
+
+/*
+ * Theme tokens. Defined on both the container and the panel because the panel
+ * is appended to the map container (a separate DOM subtree from the control),
+ * so it cannot inherit variables scoped only to `.plugin-control`.
+ */
+.plugin-control,
+.plugin-control-panel {
+  --pc-bg: #fff;
+  --pc-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  --pc-icon: #1f2a37;
+  --pc-hover-bg: rgba(0, 0, 0, 0.05);
+  --pc-text: #333;
+  --pc-muted: #888;
+  --pc-label: #555;
+  --pc-border: #e0e0e0;
+  --pc-close: #999;
+  --pc-close-hover: #333;
+  --pc-scrollbar-thumb: #ccc;
+  --pc-scrollbar-thumb-hover: #aaa;
+  --pc-input-bg: #fff;
+  --pc-input-text: inherit;
+  --pc-input-border: #ddd;
+  --pc-accent: #4a90d9;
+  --pc-accent-hover: #3a7bc8;
+  --pc-accent-ring: rgba(74, 144, 217, 0.15);
+}
+
+/* Dark theme: follows the user's system preference */
+@media (prefers-color-scheme: dark) {
+  .plugin-control,
+  .plugin-control-panel {
+    --pc-bg: #1f2937;
+    --pc-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+    --pc-icon: #e5e7eb;
+    --pc-hover-bg: rgba(255, 255, 255, 0.08);
+    --pc-text: #e5e7eb;
+    --pc-muted: #9ca3af;
+    --pc-label: #cbd5e1;
+    --pc-border: #374151;
+    --pc-close: #9ca3af;
+    --pc-close-hover: #e5e7eb;
+    --pc-scrollbar-thumb: #4b5563;
+    --pc-scrollbar-thumb-hover: #6b7280;
+    --pc-input-bg: #111827;
+    --pc-input-text: #e5e7eb;
+    --pc-input-border: #4b5563;
+    --pc-accent: #4a90d9;
+    --pc-accent-hover: #5a9fe5;
+    --pc-accent-ring: rgba(74, 144, 217, 0.25);
+  }
+}
 
 /* Container - matches maplibregl-ctrl styling */
 .plugin-control {
-  background: #fff;
+  background: var(--pc-bg);
   border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--pc-shadow);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -25,11 +81,11 @@
   justify-content: center;
   cursor: pointer;
   outline: none;
-  color: #1f2a37;
+  color: var(--pc-icon);
 }
 
 .plugin-control-toggle:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--pc-hover-bg);
 }
 
 .plugin-control-toggle .plugin-control-icon {
@@ -54,9 +110,10 @@
 .plugin-control-panel {
   position: absolute;
   /* Position is set dynamically by _updatePanelPosition() */
-  background: #fff;
+  background: var(--pc-bg);
+  color: var(--pc-text);
   border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--pc-shadow);
   min-width: 240px;
   max-width: 420px;
   max-height: 500px;
@@ -79,9 +136,9 @@
   justify-content: space-between;
   gap: 10px;
   font-weight: 600;
-  color: #333;
+  color: var(--pc-text);
   padding: 4px 0 8px 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--pc-border);
   margin-bottom: 8px;
 }
 
@@ -95,7 +152,7 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: #999;
+  color: var(--pc-close);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -107,7 +164,7 @@
 }
 
 .plugin-control-close:hover {
-  color: #333;
+  color: var(--pc-close-hover);
 }
 
 /* Content */
@@ -118,7 +175,7 @@
 
 .plugin-control-placeholder {
   margin: 0;
-  color: #888;
+  color: var(--pc-muted);
   font-size: 12px;
   text-align: center;
   padding: 16px 0;
@@ -134,12 +191,12 @@
 }
 
 .plugin-control-content::-webkit-scrollbar-thumb {
-  background: #ccc;
+  background: var(--pc-scrollbar-thumb);
   border-radius: 3px;
 }
 
 .plugin-control-content::-webkit-scrollbar-thumb:hover {
-  background: #aaa;
+  background: var(--pc-scrollbar-thumb-hover);
 }
 
 /* Form elements */
@@ -156,22 +213,24 @@
   margin-bottom: 4px;
   font-size: 12px;
   font-weight: 500;
-  color: #555;
+  color: var(--pc-label);
 }
 
 .plugin-control-input {
   width: 100%;
   padding: 8px 10px;
   font-size: 14px;
-  border: 1px solid #ddd;
+  color: var(--pc-input-text);
+  background: var(--pc-input-bg);
+  border: 1px solid var(--pc-input-border);
   border-radius: 4px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .plugin-control-input:focus {
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+  border-color: var(--pc-accent);
+  box-shadow: 0 0 0 3px var(--pc-accent-ring);
 }
 
 .plugin-control-button {
@@ -182,7 +241,7 @@
   font-size: 14px;
   font-weight: 500;
   color: white;
-  background: #4a90d9;
+  background: var(--pc-accent);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -190,16 +249,16 @@
 }
 
 .plugin-control-button:hover {
-  background: #3a7bc8;
+  background: var(--pc-accent-hover);
 }
 
 .plugin-control-button:focus {
-  outline: 2px solid #4a90d9;
+  outline: 2px solid var(--pc-accent);
   outline-offset: 2px;
 }
 
 .plugin-control-button:disabled {
-  background: #ccc;
+  background: var(--pc-scrollbar-thumb);
   cursor: not-allowed;
 }
 
@@ -217,6 +276,6 @@
 
 .plugin-control-divider {
   height: 1px;
-  background: #e0e0e0;
+  background: var(--pc-border);
   margin: 12px 0;
 }
