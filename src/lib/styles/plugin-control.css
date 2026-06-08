@@ -61,8 +61,13 @@
   }
 }
 
-/* Container - matches maplibregl-ctrl styling */
-.plugin-control {
+/*
+ * Container - matches maplibregl-ctrl styling.
+ * The `.maplibregl-ctrl-group` part raises specificity above MapLibre's own
+ * `.maplibregl-ctrl-group { background: #fff }` rule, which otherwise wins on
+ * source order and keeps the button white (poor contrast in dark mode).
+ */
+.maplibregl-ctrl-group.plugin-control {
   background: var(--pc-bg);
   border-radius: 4px;
   box-shadow: var(--pc-shadow);
