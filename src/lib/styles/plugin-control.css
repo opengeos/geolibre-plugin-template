@@ -221,7 +221,7 @@
   margin-top: 8px;
   font-size: 12px;
   color: var(--pc-muted);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .plugin-control-status:empty {

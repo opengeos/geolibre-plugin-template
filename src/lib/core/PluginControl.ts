@@ -253,13 +253,18 @@ export class PluginControl implements IControl, DeepLinkConsumer {
    * @returns The selected files, or `null` if the picker was unavailable or cancelled
    */
   async openFiles(): Promise<File[] | null> {
-    const files = await this._options.pickFiles();
-    if (!files || files.length === 0) {
-      this._setStatus('No files selected.');
+    try {
+      const files = await this._options.pickFiles();
+      if (!files || files.length === 0) {
+        this._setStatus('No files selected.');
+        return files;
+      }
+      this._setStatus(`Selected ${files.length} file(s).`);
       return files;
+    } catch {
+      this._setStatus('Unable to open folder.');
+      return null;
     }
-    this._setStatus(`Selected ${files.length} file(s).`);
-    return files;
   }
 
   /**
@@ -295,20 +300,31 @@ export class PluginControl implements IControl, DeepLinkConsumer {
    * @param layer - The native layer registration payload
    */
   private _registerNativeLayer(layer: GeoLibreNativeLayerRegistration): void {
-    if (!this._registeredNativeLayerIds.includes(layer.id)) {
-      this._registeredNativeLayerIds.push(layer.id);
+    try {
+      this._options.registerNativeLayer(layer);
+      if (!this._registeredNativeLayerIds.includes(layer.id)) {
+        this._registeredNativeLayerIds.push(layer.id);
+      }
+    } catch {
+      this._setStatus('Failed to register native layer.');
     }
-    this._options.registerNativeLayer(layer);
   }
 
   /**
    * Unregister every native layer this control registered with the host.
    */
   private _clearNativeLayers(): void {
-    for (const id of this._registeredNativeLayerIds) {
-      this._options.unregisterNativeLayer(id);
-    }
+    // Reset bookkeeping up front so internal state stays consistent even if a
+    // host callback throws partway through teardown.
+    const ids = [...this._registeredNativeLayerIds];
     this._registeredNativeLayerIds = [];
+    for (const id of ids) {
+      try {
+        this._options.unregisterNativeLayer(id);
+      } catch {
+        // Keep clearing the remaining ids.
+      }
+    }
   }
 
   /**

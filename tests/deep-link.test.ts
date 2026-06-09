@@ -42,17 +42,17 @@ describe('getPluginDataValue', () => {
 });
 
 describe('maybeHandleDeepLink', () => {
-  it('forwards the value when the parameter is present', () => {
+  it('forwards the value when the parameter is present', async () => {
     const consumer = { loadFromUrl: vi.fn() };
-    maybeHandleDeepLink(consumer, params('?plugin-data=https://x/y.zip'));
+    await maybeHandleDeepLink(consumer, params('?plugin-data=https://x/y.zip'));
     expect(consumer.loadFromUrl).toHaveBeenCalledOnce();
     expect(consumer.loadFromUrl).toHaveBeenCalledWith('https://x/y.zip');
   });
 
-  it('does nothing when the parameter is absent or blank', () => {
+  it('does nothing when the parameter is absent or blank', async () => {
     const consumer = { loadFromUrl: vi.fn() };
-    maybeHandleDeepLink(consumer, params('?other=1'));
-    maybeHandleDeepLink(consumer, params('?plugin-data='));
+    await maybeHandleDeepLink(consumer, params('?other=1'));
+    await maybeHandleDeepLink(consumer, params('?plugin-data='));
     expect(consumer.loadFromUrl).not.toHaveBeenCalled();
   });
 });
