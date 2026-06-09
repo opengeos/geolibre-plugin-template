@@ -10,6 +10,7 @@ A template for creating GeoLibre Desktop plugins backed by MapLibre GL JS contro
 ## Features
 
 - **GeoLibre Bundle Output** - Builds a zip with root `plugin.json`, bundled ESM, and CSS for GeoLibre Desktop
+- **GeoLibre Host Contract** - Typed `GeoLibreAppAPI`/`GeoLibrePlugin` contract, URL deep-linking, native-layer registration, and a one-step `install:geolibre`
 - **TypeScript Support** - Full TypeScript support with type definitions
 - **React Integration** - React wrapper component and custom hooks
 - **IControl Implementation** - Implements MapLibre's IControl interface
@@ -69,6 +70,92 @@ http://localhost:8000/plugin.json
 
 Using `python -m http.server` for this cross-origin web app case is not enough
 because it does not send `Access-Control-Allow-Origin`.
+
+### Install into GeoLibre in one step
+
+Instead of copying the zip by hand, `install:geolibre` builds the bundle and
+drops it straight into a place GeoLibre loads from:
+
+```bash
+# GeoLibre Desktop's app-data plugins directory (auto-scanned on startup)
+npm run install:geolibre
+
+# A GeoLibre repo's bundled drop-in folder (apps/geolibre-desktop/public/plugins)
+npm run install:geolibre -- --web /path/to/geolibre
+
+# A custom directory
+GEOLIBRE_PLUGINS_DIR=/path/to/plugins npm run install:geolibre
+```
+
+Restart GeoLibre Desktop (or rebuild/restart the GeoLibre dev server for `--web`)
+to load the plugin. The script reads `geolibre-plugin/plugin.json`, so it works
+for any plugin built from this template with no edits.
+
+## GeoLibre integration
+
+`src/geolibre.ts` is the entry point GeoLibre loads. It exports a plugin object
+that GeoLibre calls across the plugin lifecycle. The full contract between the
+plugin and the host lives in `src/lib/geolibre/host-api.ts` and is re-exported
+from the package, so you import the types instead of redeclaring them:
+
+```typescript
+import type {
+  GeoLibreAppAPI,
+  GeoLibrePlugin,
+  GeoLibreNativeLayerRegistration,
+} from "geolibre-plugin-template";
+```
+
+### Host API (`GeoLibreAppAPI`)
+
+The host passes this object to `activate`, `deactivate`, and the other hooks.
+Only the first two members are guaranteed; the rest are optional capabilities,
+so call them with optional chaining and degrade gracefully when a host build
+does not provide them.
+
+| Member                          | Required | Description                                              |
+| ------------------------------- | -------- | ------------------------------------------------------- |
+| `addMapControl`                 | yes      | Add the plugin's control to the map                     |
+| `removeMapControl`              | yes      | Remove the control from the map                         |
+| `pickLocalDirectoryFiles`       | no       | Open the host's directory picker (e.g. GeoLibre Desktop) |
+| `registerExternalNativeLayer`   | no       | Hand the host a dataset to render as a native layer     |
+| `unregisterExternalNativeLayer` | no       | Remove a previously registered native layer             |
+
+### Plugin lifecycle hooks (`GeoLibrePlugin`)
+
+| Hook                                              | Description                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| `activate`                                        | Create and add the control; return `false` if it cannot be added |
+| `deactivate`                                      | Capture state to restore, then remove the control                |
+| `urlParameterNames`                               | Query parameters this plugin owns (drives auto-activation)       |
+| `handleUrlParameters`                             | Receive deep-link query parameters (see below)                   |
+| `getMapControlPosition` / `setMapControlPosition` | Report and change the control's dock position                    |
+| `getProjectState` / `applyProjectState`           | Serialize and restore state with the GeoLibre project            |
+
+### Deep linking
+
+Declare the query parameters your plugin owns in `urlParameterNames`. When
+GeoLibre opens a URL carrying one of them, it auto-activates the plugin and
+dispatches the parsed parameters to `handleUrlParameters`. The template wires
+this to the DOM-free helpers in `src/lib/utils/deep-link.ts`:
+
+```text
+https://geolibre.app/?plugin-data=https://example.com/dataset.zip
+```
+
+Rename `PLUGIN_DATA_PARAM` and adapt the `DeepLinkConsumer` interface (which
+`PluginControl.loadFromUrl` implements) to whatever your plugin needs to receive.
+
+### Native layer registration
+
+When the host exposes `registerExternalNativeLayer`, a plugin can hand it a
+dataset and let GeoLibre own the MapLibre sources and layers, so they appear in
+the host's layer panel and follow its theme. The GeoLibre wrapper binds the
+host callbacks into the control's `registerNativeLayer` / `unregisterNativeLayer`
+options; `PluginControl.loadFromUrl` shows the end-to-end pattern, and the
+control unregisters its layers automatically when removed. Outside GeoLibre the
+callbacks default to no-ops, so the control still works as a standalone MapLibre
+control.
 
 ## Quick Start
 
@@ -159,6 +246,9 @@ The main control class implementing MapLibre's `IControl` interface.
 | `title`      | `string`  | `'Plugin Control'` | Title displayed in the header                                             |
 | `panelWidth` | `number`  | `300`              | Width of the dropdown panel in pixels                                     |
 | `className`  | `string`  | `''`               | Custom CSS class name                                                     |
+| `pickFiles`  | `function` | no-op (`null`)    | Host directory picker; the GeoLibre wrapper binds it to `pickLocalDirectoryFiles` |
+| `registerNativeLayer`   | `function` | no-op   | Host callback to register a native layer; bound to `registerExternalNativeLayer` |
+| `unregisterNativeLayer` | `function` | no-op   | Host callback to remove a native layer; bound to `unregisterExternalNativeLayer` |
 
 #### Methods
 
@@ -167,6 +257,8 @@ The main control class implementing MapLibre's `IControl` interface.
 - `collapse()` - Collapse the panel
 - `getState()` - Get the current state
 - `setState(state)` - Update the state
+- `loadFromUrl(value)` - Handle a deep-link value (implements `DeepLinkConsumer`)
+- `openFiles()` - Open the host directory picker via `pickFiles`
 - `on(event, handler)` - Register an event handler
 - `off(event, handler)` - Remove an event handler
 - `getMap()` - Get the map instance
@@ -243,6 +335,8 @@ npm run dev
 | `npm run build:lib`        | Build the standalone MapLibre library    |
 | `npm run build:geolibre`   | Build the GeoLibre ESM and CSS bundle    |
 | `npm run package:geolibre` | Build and zip the GeoLibre plugin bundle |
+| `npm run install:geolibre` | Build and install the bundle into GeoLibre |
+| `npm run serve:geolibre`   | Serve the unpacked bundle with CORS      |
 | `npm run build:examples`   | Build examples for deployment            |
 | `npm run test`             | Run tests                                |
 | `npm run test:ui`          | Run tests with UI                        |
@@ -257,7 +351,9 @@ geolibre-plugin-template/
 ├── geolibre-plugin/
 │   └── plugin.json          # GeoLibre external plugin manifest
 ├── scripts/
-│   └── package-geolibre-plugin.mjs
+│   ├── package-geolibre-plugin.mjs
+│   ├── install-geolibre-plugin.mjs  # Install the bundle into GeoLibre
+│   └── serve-geolibre-plugin.mjs
 ├── src/
 │   ├── index.ts              # Main entry point
 │   ├── geolibre.ts           # GeoLibre plugin wrapper entry point
@@ -265,8 +361,9 @@ geolibre-plugin-template/
 │   ├── index.css             # Root styles
 │   └── lib/
 │       ├── core/             # Core classes and types
+│       ├── geolibre/         # GeoLibre host-plugin contract (host-api.ts)
 │       ├── hooks/            # React hooks
-│       ├── utils/            # Utility functions
+│       ├── utils/            # Utility functions (incl. deep-link.ts)
 │       └── styles/           # Component styles
 ├── tests/                    # Test files
 ├── examples/                 # Example applications

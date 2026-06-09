@@ -1,4 +1,5 @@
 import type { Map } from 'maplibre-gl';
+import type { GeoLibreNativeLayerRegistration } from '../geolibre/host-api';
 
 /**
  * Options for configuring the PluginControl
@@ -32,6 +33,29 @@ export interface PluginControlOptions {
    * Custom CSS class name for the control container
    */
   className?: string;
+
+  /**
+   * Host-provided directory picker (for example, GeoLibre Desktop). Resolves
+   * with the selected files, or `null` when the user cancels or no host picker
+   * is available. The GeoLibre wrapper binds this to
+   * `app.pickLocalDirectoryFiles`; defaults to a no-op returning `null`.
+   */
+  pickFiles?: () => Promise<File[] | null>;
+
+  /**
+   * Host callback to register a native MapLibre layer that GeoLibre owns and
+   * renders on the plugin's behalf. Bound by the GeoLibre wrapper to
+   * `app.registerExternalNativeLayer`; defaults to a no-op so the control also
+   * works as a standalone MapLibre control.
+   */
+  registerNativeLayer?: (layer: GeoLibreNativeLayerRegistration) => void;
+
+  /**
+   * Host callback to remove a native layer previously registered with
+   * {@link PluginControlOptions.registerNativeLayer}. Bound by the GeoLibre
+   * wrapper to `app.unregisterExternalNativeLayer`; defaults to a no-op.
+   */
+  unregisterNativeLayer?: (id: string) => void;
 }
 
 /**

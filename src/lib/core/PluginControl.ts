@@ -5,9 +5,15 @@ import type {
   PluginControlEvent,
   PluginControlEventHandler,
 } from './types';
+import type { DeepLinkConsumer } from '../utils/deep-link';
+import type { GeoLibreNativeLayerRegistration } from '../geolibre/host-api';
 
 /**
- * Default options for the PluginControl
+ * Default options for the PluginControl.
+ *
+ * The host-capability callbacks default to safe no-ops so the control works as a
+ * standalone MapLibre control. The GeoLibre wrapper (`src/geolibre.ts`) binds
+ * them to the real host APIs when the plugin runs inside GeoLibre.
  */
 const DEFAULT_OPTIONS: Required<PluginControlOptions> = {
   collapsed: true,
@@ -15,6 +21,9 @@ const DEFAULT_OPTIONS: Required<PluginControlOptions> = {
   title: 'Plugin Control',
   panelWidth: 300,
   className: '',
+  pickFiles: () => Promise.resolve(null),
+  registerNativeLayer: () => undefined,
+  unregisterNativeLayer: () => undefined,
 };
 
 /**
@@ -35,14 +44,19 @@ type EventHandlersMap = globalThis.Map<PluginControlEvent, Set<PluginControlEven
  * map.addControl(control, 'top-right');
  * ```
  */
-export class PluginControl implements IControl {
+export class PluginControl implements IControl, DeepLinkConsumer {
   private _map?: MapLibreMap;
   private _mapContainer?: HTMLElement;
   private _container?: HTMLElement;
   private _panel?: HTMLElement;
+  private _status?: HTMLElement;
   private _options: Required<PluginControlOptions>;
   private _state: PluginState;
   private _eventHandlers: EventHandlersMap = new globalThis.Map();
+
+  // Ids of native layers this control has registered with the host, so they can
+  // be unregistered when the control is removed.
+  private _registeredNativeLayerIds: string[] = [];
 
   // Panel positioning handlers
   private _resizeHandler: (() => void) | null = null;
@@ -113,6 +127,9 @@ export class PluginControl implements IControl {
       this._clickOutsideHandler = null;
     }
 
+    // Hand any native layers this control registered back to the host.
+    this._clearNativeLayers();
+
     // Remove panel from map container
     this._panel?.parentNode?.removeChild(this._panel);
 
@@ -123,6 +140,7 @@ export class PluginControl implements IControl {
     this._mapContainer = undefined;
     this._container = undefined;
     this._panel = undefined;
+    this._status = undefined;
     this._eventHandlers.clear();
   }
 
@@ -225,6 +243,86 @@ export class PluginControl implements IControl {
   }
 
   /**
+   * Open the host's directory picker and act on the chosen files.
+   *
+   * Calls the `pickFiles` option, which the GeoLibre wrapper binds to
+   * `app.pickLocalDirectoryFiles`. Outside GeoLibre (or on a host without file
+   * access) it resolves to `null`. Replace the body with your own handling of
+   * the returned files.
+   *
+   * @returns The selected files, or `null` if the picker was unavailable or cancelled
+   */
+  async openFiles(): Promise<File[] | null> {
+    const files = await this._options.pickFiles();
+    if (!files || files.length === 0) {
+      this._setStatus('No files selected.');
+      return files;
+    }
+    this._setStatus(`Selected ${files.length} file(s).`);
+    return files;
+  }
+
+  /**
+   * Load plugin data referenced by a deep link.
+   *
+   * Satisfies {@link DeepLinkConsumer}: the GeoLibre wrapper routes a
+   * `?plugin-data=<value>` URL parameter here. This template implementation just
+   * records the value and demonstrates handing a native layer to the host;
+   * replace it with your own fetch-and-render logic.
+   *
+   * @param value - The deep-link value (for example, a dataset URL)
+   */
+  async loadFromUrl(value: string): Promise<void> {
+    this.setState({ data: { ...this._state.data, loadedUrl: value } });
+    this._setStatus(`Loaded: ${value}`);
+
+    // Demonstrate handing a dataset to GeoLibre as a native layer it owns.
+    this._registerNativeLayer({
+      id: 'plugin-template-data',
+      name: 'Plugin data',
+      nativeLayerIds: ['plugin-template-data-layer'],
+      sourceIds: ['plugin-template-data-source'],
+      opacity: 1,
+      style: { circleRadius: 5, fillColor: '#2f7ed8' },
+      metadata: { sourceUrl: value },
+    });
+  }
+
+  /**
+   * Register a native layer with the host, tracking its id so it can be removed
+   * when the control is torn down. No-ops outside GeoLibre.
+   *
+   * @param layer - The native layer registration payload
+   */
+  private _registerNativeLayer(layer: GeoLibreNativeLayerRegistration): void {
+    if (!this._registeredNativeLayerIds.includes(layer.id)) {
+      this._registeredNativeLayerIds.push(layer.id);
+    }
+    this._options.registerNativeLayer(layer);
+  }
+
+  /**
+   * Unregister every native layer this control registered with the host.
+   */
+  private _clearNativeLayers(): void {
+    for (const id of this._registeredNativeLayerIds) {
+      this._options.unregisterNativeLayer(id);
+    }
+    this._registeredNativeLayerIds = [];
+  }
+
+  /**
+   * Update the status line in the panel, if it is mounted.
+   *
+   * @param message - The status text to display
+   */
+  private _setStatus(message: string): void {
+    if (this._status) {
+      this._status.textContent = message;
+    }
+  }
+
+  /**
    * Emits an event to all registered handlers.
    *
    * @param event - The event type to emit
@@ -303,11 +401,35 @@ export class PluginControl implements IControl {
     // Create content area
     const content = document.createElement('div');
     content.className = 'plugin-control-content';
-    content.innerHTML = `
-      <p class="plugin-control-placeholder">
-        Add your custom plugin content here.
-      </p>
-    `;
+
+    const placeholder = document.createElement('p');
+    placeholder.className = 'plugin-control-placeholder';
+    placeholder.textContent = 'Add your custom plugin content here.';
+
+    // Demonstrate the GeoLibre host callbacks end to end. These buttons drive
+    // `openFiles()` and `loadFromUrl()`, which call the host-provided pickers
+    // and native-layer registration. Outside GeoLibre they fall back to no-ops.
+    const actions = document.createElement('div');
+    actions.className = 'plugin-control-actions';
+
+    const openFolderBtn = document.createElement('button');
+    openFolderBtn.type = 'button';
+    openFolderBtn.className = 'plugin-control-action';
+    openFolderBtn.textContent = 'Open folder…';
+    openFolderBtn.addEventListener('click', () => {
+      void this.openFiles();
+    });
+
+    actions.appendChild(openFolderBtn);
+
+    const status = document.createElement('div');
+    status.className = 'plugin-control-status';
+    status.textContent = '';
+    this._status = status;
+
+    content.appendChild(placeholder);
+    content.appendChild(actions);
+    content.appendChild(status);
 
     panel.appendChild(header);
     panel.appendChild(content);

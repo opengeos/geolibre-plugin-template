@@ -1,45 +1,31 @@
 import { PluginControl } from "./lib/core/PluginControl";
 import type { PluginState } from "./lib/core/types";
+import type {
+  GeoLibreAppAPI,
+  GeoLibreMapControlPosition,
+  GeoLibrePlugin,
+} from "./lib/geolibre/host-api";
+import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
 import "./lib/styles/plugin-control.css";
 
-type GeoLibreMapControlPosition =
-  | "top-left"
-  | "top-right"
-  | "bottom-left"
-  | "bottom-right";
-
-interface GeoLibreAppAPI {
-  addMapControl: (
-    control: PluginControl,
-    position?: GeoLibreMapControlPosition,
-  ) => boolean;
-  removeMapControl: (control: PluginControl) => void;
-}
-
-interface GeoLibrePlugin {
-  id: string;
-  name: string;
-  version: string;
-  activate: (app: GeoLibreAppAPI) => boolean | void;
-  deactivate: (app: GeoLibreAppAPI) => void;
-  getMapControlPosition?: () => GeoLibreMapControlPosition;
-  setMapControlPosition?: (
-    app: GeoLibreAppAPI,
-    position: GeoLibreMapControlPosition,
-  ) => boolean | void;
-  getProjectState?: () => unknown;
-  applyProjectState?: (app: GeoLibreAppAPI, state: unknown) => boolean | void;
-}
+// The host API is generic over the control type; bind it to this plugin's
+// concrete control so the wired callbacks are fully typed.
+type AppAPI = GeoLibreAppAPI<PluginControl>;
 
 let control: PluginControl | null = null;
 let position: GeoLibreMapControlPosition = "top-right";
 let pendingState: Partial<PluginState> | null = null;
 
-function createControl(): PluginControl {
+function createControl(app: AppAPI): PluginControl {
   const nextControl = new PluginControl({
     collapsed: pendingState?.collapsed ?? true,
     panelWidth: pendingState?.panelWidth ?? 300,
     title: "GeoLibre Plugin Template",
+    // Bind optional host capabilities; each falls back to a no-op on hosts (or
+    // standalone usage) that do not provide them.
+    pickFiles: () => app.pickLocalDirectoryFiles?.() ?? Promise.resolve(null),
+    registerNativeLayer: (layer) => app.registerExternalNativeLayer?.(layer),
+    unregisterNativeLayer: (id) => app.unregisterExternalNativeLayer?.(id),
   });
 
   if (pendingState) {
@@ -73,17 +59,24 @@ function isPluginState(value: unknown): value is Partial<PluginState> {
   return true;
 }
 
-export const plugin: GeoLibrePlugin = {
+export const plugin: GeoLibrePlugin<PluginControl> = {
   id: "geolibre-plugin-template",
   name: "GeoLibre Plugin Template",
   version: "0.1.0",
+  urlParameterNames: [PLUGIN_DATA_PARAM],
   activate(app) {
-    control = control ?? createControl();
+    control = control ?? createControl(app);
     const added = app.addMapControl(control, position);
     if (!added) {
       control = null;
       return false;
     }
+  },
+  // Deep link: GeoLibre auto-activates this plugin when a URL carries a
+  // parameter it owns and dispatches the parsed parameters here, e.g.
+  // ?plugin-data=https://example.com/dataset.zip
+  handleUrlParameters(_app, params) {
+    if (control) return maybeHandleDeepLink(control, params);
   },
   deactivate(app) {
     if (!control) return;

@@ -186,6 +186,48 @@
   padding: 16px 0;
 }
 
+/* Demo actions wiring the host callbacks (open folder, deep-link status) */
+.plugin-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plugin-control-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  background: var(--pc-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.plugin-control-action:hover {
+  background: var(--pc-accent-hover);
+}
+
+.plugin-control-action:focus {
+  outline: 2px solid var(--pc-accent);
+  outline-offset: 2px;
+}
+
+.plugin-control-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--pc-muted);
+  word-break: break-word;
+}
+
+.plugin-control-status:empty {
+  display: none;
+}
+
 /* Scrollbar styling */
 .plugin-control-content::-webkit-scrollbar {
   width: 6px;
