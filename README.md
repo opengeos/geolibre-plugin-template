@@ -118,6 +118,7 @@ does not provide them.
 | `addMapControl`                 | yes      | Add the plugin's control to the map                     |
 | `removeMapControl`              | yes      | Remove the control from the map                         |
 | `pickLocalDirectoryFiles`       | no       | Open the host's directory picker (e.g. GeoLibre Desktop) |
+| `resolvePluginAssetUrl`         | no       | Resolve a fetchable URL for an asset bundled in the plugin |
 | `registerExternalNativeLayer`   | no       | Hand the host a dataset to render as a native layer     |
 | `unregisterExternalNativeLayer` | no       | Remove a previously registered native layer             |
 
@@ -156,6 +157,29 @@ options; `PluginControl.loadFromUrl` shows the end-to-end pattern, and the
 control unregisters its layers automatically when removed. Outside GeoLibre the
 callbacks default to no-ops, so the control still works as a standalone MapLibre
 control.
+
+### Bundling plugin-local assets
+
+If your plugin ships static assets it loads over HTTP at runtime (sample
+datasets, icons, JSON, etc.), copy them into the built bundle so a baked-in or
+URL-served GeoLibre install can fetch them next to the plugin entry, then resolve
+their URL at runtime with `app.resolvePluginAssetUrl(pluginId, relativePath)`:
+
+```ts
+// In createControl(app), enable a feature only when the asset is reachable:
+const sampleDataBaseUrl =
+  app.resolvePluginAssetUrl?.("your-plugin-id", "dist/sample-data") ?? undefined;
+```
+
+`resolvePluginAssetUrl` returns `null` when the plugin was not loaded from a URL
+base (for example, a desktop filesystem install), so treat both `undefined`
+(host lacks the method) and `null` (asset not resolvable) as "unavailable" and
+hide any UI that depends on the asset.
+
+`vite.geolibre.config.ts` ships a commented `bundlePluginAssets()` recipe that
+copies a source directory into `geolibre-plugin/dist/` on `closeBundle` and sets
+`publicDir: false` so unrelated `public/` files are not pulled into the bundle.
+Uncomment it and point it at your asset directory to enable it.
 
 ## Quick Start
 

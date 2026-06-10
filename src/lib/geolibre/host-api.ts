@@ -108,6 +108,22 @@ export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreContr
    */
   pickLocalDirectoryFiles?: () => Promise<File[] | null>;
   /**
+   * Resolve a fetchable URL for an asset bundled inside this plugin's own
+   * folder, given the plugin id and a path relative to its manifest (for
+   * example, `"dist/sample-data"`). Use this for assets the plugin ships and
+   * loads over HTTP at runtime.
+   *
+   * Returns `null` when the plugin was not loaded from a URL base (for example,
+   * a desktop filesystem install), so the asset is not reachable over HTTP. Call
+   * with optional chaining and treat both `undefined` (host lacks the method)
+   * and `null` (asset not resolvable) as "this asset is unavailable", hiding any
+   * UI that depends on it.
+   */
+  resolvePluginAssetUrl?: (
+    pluginId: string,
+    relativePath: string,
+  ) => string | null;
+  /**
    * Hand the host a dataset to render as a native MapLibre layer it owns. See
    * {@link GeoLibreNativeLayerRegistration}.
    */
