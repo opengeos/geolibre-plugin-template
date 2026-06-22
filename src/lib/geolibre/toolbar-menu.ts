@@ -36,6 +36,9 @@ export function registerTemplateToolbarMenu<TControl extends GeoLibreControl>(
       {
         id: "open-right",
         label: "Open workbench panel",
+        // Disable the item on hosts that lack the capability, so it is not a
+        // clickable no-op (demonstrates the `disabled` flag + capability check).
+        disabled: !app.openRightPanel,
         onSelect: () => app.openRightPanel?.(RIGHT_PANEL_ID),
       },
       {
@@ -46,6 +49,7 @@ export function registerTemplateToolbarMenu<TControl extends GeoLibreControl>(
           {
             id: "open-floating",
             label: "Open floating tools",
+            disabled: !app.openFloatingPanel,
             onSelect: () => app.openFloatingPanel?.(FLOATING_PANEL_ID),
           },
         ],
@@ -54,6 +58,7 @@ export function registerTemplateToolbarMenu<TControl extends GeoLibreControl>(
       {
         id: "close-panels",
         label: "Close panels",
+        disabled: !app.closeRightPanel && !app.closeFloatingPanel,
         onSelect: () => {
           app.closeRightPanel?.(RIGHT_PANEL_ID);
           app.closeFloatingPanel?.(FLOATING_PANEL_ID);

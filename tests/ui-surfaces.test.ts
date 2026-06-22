@@ -94,6 +94,11 @@ describe("registerTemplateToolbarMenu", () => {
 
     (openFloating as { onSelect: () => void }).onSelect();
     expect(app.openFloatingPanel).toHaveBeenCalledWith(FLOATING_PANEL_ID);
+
+    const closePanels = findAction(menu!, "close-panels");
+    (closePanels as { onSelect: () => void }).onSelect();
+    expect(app.closeRightPanel).toHaveBeenCalledWith(RIGHT_PANEL_ID);
+    expect(app.closeFloatingPanel).toHaveBeenCalledWith(FLOATING_PANEL_ID);
   });
 
   it("returns null when the host has no toolbar", () => {
