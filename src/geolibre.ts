@@ -5,7 +5,9 @@ import type {
   GeoLibreMapControlPosition,
   GeoLibrePlugin,
 } from "./lib/geolibre/host-api";
+import { registerTemplateFloatingPanel } from "./lib/geolibre/floating-panel";
 import { registerTemplateRightPanel } from "./lib/geolibre/right-panel";
+import { registerTemplateToolbarMenu } from "./lib/geolibre/toolbar-menu";
 import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
 import "./lib/styles/plugin-control.css";
 
@@ -16,9 +18,12 @@ type AppAPI = GeoLibreAppAPI<PluginControl>;
 let control: PluginControl | null = null;
 let position: GeoLibreMapControlPosition = "top-right";
 let pendingState: Partial<PluginState> | null = null;
-// Disposer for the demo right-sidebar panel; null when the host has no right
-// sidebar. See ./lib/geolibre/right-panel.ts.
+// Disposers for the demo UI surfaces; each is null when the host does not
+// provide that surface. See ./lib/geolibre/{right-panel,floating-panel,
+// toolbar-menu}.ts.
 let disposeRightPanel: (() => void) | null = null;
+let disposeFloatingPanel: (() => void) | null = null;
+let disposeToolbarMenu: (() => void) | null = null;
 
 function createControl(app: AppAPI): PluginControl {
   const nextControl = new PluginControl({
@@ -75,9 +80,13 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
       control = null;
       return false;
     }
-    // Demonstrate the native right-sidebar panel API. Remove this line (and the
-    // import) if your plugin only needs a map control.
+    // Demonstrate the native plugin UI surfaces. Remove any you do not need
+    // (and their imports) if your plugin only needs a map control. The right
+    // panel opens immediately; the floating panel is registered and opened on
+    // demand from the toolbar menu.
     disposeRightPanel = registerTemplateRightPanel(app);
+    disposeFloatingPanel = registerTemplateFloatingPanel(app);
+    disposeToolbarMenu = registerTemplateToolbarMenu(app);
   },
   // Deep link: GeoLibre auto-activates this plugin when a URL carries a
   // parameter it owns and dispatches the parsed parameters here, e.g.
@@ -86,6 +95,10 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
     if (control) return maybeHandleDeepLink(control, params);
   },
   deactivate(app) {
+    disposeToolbarMenu?.();
+    disposeToolbarMenu = null;
+    disposeFloatingPanel?.();
+    disposeFloatingPanel = null;
     disposeRightPanel?.();
     disposeRightPanel = null;
     if (!control) return;

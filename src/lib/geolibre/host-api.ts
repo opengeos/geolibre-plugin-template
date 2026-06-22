@@ -188,6 +188,107 @@ export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreContr
   closeRightPanel?: (id: string) => void;
   /** Id of the active right-side workspace panel, or `null` when none is open. */
   getActiveRightPanel?: () => string | null;
+  /**
+   * Register a top-level toolbar menu in the host banner, with nested submenus
+   * and action items. Returns an unregister function (call it from
+   * `deactivate`). Re-registering the same id replaces the menu. See
+   * {@link GeoLibreToolbarMenu}.
+   */
+  registerToolbarMenu?: (menu: GeoLibreToolbarMenu) => () => void;
+  /** Remove a previously registered toolbar menu. */
+  unregisterToolbarMenu?: (id: string) => void;
+  /**
+   * Register a floating panel: a draggable, closeable card the host overlays on
+   * the map's top-left corner. Returns an unregister function (call it from
+   * `deactivate`). The panel is not shown until {@link openFloatingPanel} is
+   * called. Several floating panels can be open at once and they do not shrink
+   * the map. See {@link GeoLibreFloatingPanelRegistration}.
+   */
+  registerFloatingPanel?: (
+    panel: GeoLibreFloatingPanelRegistration,
+  ) => () => void;
+  /** Remove a registered floating panel (closing it if open). */
+  unregisterFloatingPanel?: (id: string) => void;
+  /** Open a floating panel (or bring an already-open one to the front). */
+  openFloatingPanel?: (id: string) => boolean;
+  /** Close an open floating panel. */
+  closeFloatingPanel?: (id: string) => void;
+  /** Ids of the currently open floating panels, in stacking order. */
+  getOpenFloatingPanels?: () => string[];
+}
+
+/**
+ * An action item in a plugin {@link GeoLibreToolbarMenu}. Selecting it runs
+ * {@link onSelect} (for example, to open a right panel or floating panel).
+ */
+export interface GeoLibreToolbarMenuAction {
+  /** Discriminator; defaults to "action" when omitted. */
+  type?: "action";
+  /** Stable id, unique within the menu. */
+  id: string;
+  /** Label shown in the menu. */
+  label: string;
+  /** Optional icon: a URL or `data:` URI rendered as an image. */
+  icon?: string;
+  /** When true, the item is shown disabled and cannot be selected. */
+  disabled?: boolean;
+  /** Invoked when the user selects the item. */
+  onSelect: () => void;
+}
+
+/** A nested submenu in a plugin {@link GeoLibreToolbarMenu}. */
+export interface GeoLibreToolbarSubmenu {
+  type: "submenu";
+  id: string;
+  label: string;
+  icon?: string;
+  items: GeoLibreToolbarMenuItem[];
+}
+
+/** A divider between groups of items in a plugin toolbar menu. */
+export interface GeoLibreToolbarSeparator {
+  type: "separator";
+  id?: string;
+}
+
+/** One entry in a plugin toolbar menu: an action, a submenu, or a separator. */
+export type GeoLibreToolbarMenuItem =
+  | GeoLibreToolbarMenuAction
+  | GeoLibreToolbarSubmenu
+  | GeoLibreToolbarSeparator;
+
+/**
+ * A plugin-owned top-level toolbar menu. The host renders it as a dropdown
+ * button in the banner beside the built-in menus.
+ */
+export interface GeoLibreToolbarMenu {
+  id: string;
+  label: string;
+  icon?: string;
+  items: GeoLibreToolbarMenuItem[];
+}
+
+/**
+ * A plugin-owned floating panel: a draggable, closeable card the host overlays
+ * on the map's top-left corner. The plugin owns only the body via {@link render}
+ * (plain DOM); the host provides the card chrome (a draggable title bar with a
+ * close button).
+ */
+export interface GeoLibreFloatingPanelRegistration {
+  id: string;
+  title: string;
+  icon?: string;
+  /** Preferred card width in px (the host clamps it). */
+  defaultWidth?: number;
+  /**
+   * Populate the card body. Called once with an empty container the plugin
+   * fills with its own DOM. The container stays mounted while the card is open,
+   * so plugin state persists. May return a cleanup function the host runs when
+   * the panel closes or is unregistered.
+   */
+  render: (container: HTMLElement) => void | (() => void);
+  onOpen?: () => void;
+  onClose?: () => void;
 }
 
 /**
