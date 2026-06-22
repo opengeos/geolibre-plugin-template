@@ -5,6 +5,7 @@ import type {
   GeoLibreMapControlPosition,
   GeoLibrePlugin,
 } from "./lib/geolibre/host-api";
+import { registerTemplateRightPanel } from "./lib/geolibre/right-panel";
 import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
 import "./lib/styles/plugin-control.css";
 
@@ -15,6 +16,9 @@ type AppAPI = GeoLibreAppAPI<PluginControl>;
 let control: PluginControl | null = null;
 let position: GeoLibreMapControlPosition = "top-right";
 let pendingState: Partial<PluginState> | null = null;
+// Disposer for the demo right-sidebar panel; null when the host has no right
+// sidebar. See ./lib/geolibre/right-panel.ts.
+let disposeRightPanel: (() => void) | null = null;
 
 function createControl(app: AppAPI): PluginControl {
   const nextControl = new PluginControl({
@@ -71,6 +75,9 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
       control = null;
       return false;
     }
+    // Demonstrate the native right-sidebar panel API. Remove this line (and the
+    // import) if your plugin only needs a map control.
+    disposeRightPanel = registerTemplateRightPanel(app);
   },
   // Deep link: GeoLibre auto-activates this plugin when a URL carries a
   // parameter it owns and dispatches the parsed parameters here, e.g.
@@ -79,6 +86,8 @@ export const plugin: GeoLibrePlugin<PluginControl> = {
     if (control) return maybeHandleDeepLink(control, params);
   },
   deactivate(app) {
+    disposeRightPanel?.();
+    disposeRightPanel = null;
     if (!control) return;
     pendingState = control.getState();
     app.removeMapControl(control);

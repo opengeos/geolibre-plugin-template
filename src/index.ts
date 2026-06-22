@@ -21,7 +21,14 @@ export type {
   GeoLibreNativeLayerRegistration,
   GeoLibreNativeLayerStyle,
   GeoLibreFeatureCollection,
+  GeoLibreRightPanelRegistration,
 } from './lib/geolibre/host-api';
+
+// GeoLibre right-sidebar panel demonstration
+export {
+  RIGHT_PANEL_ID,
+  registerTemplateRightPanel,
+} from './lib/geolibre/right-panel';
 
 // Deep-linking helpers
 export {

@@ -10,7 +10,7 @@ A template for creating GeoLibre Desktop plugins backed by MapLibre GL JS contro
 ## Features
 
 - **GeoLibre Bundle Output** - Builds a zip with root `plugin.json`, bundled ESM, and CSS for GeoLibre Desktop
-- **GeoLibre Host Contract** - Typed `GeoLibreAppAPI`/`GeoLibrePlugin` contract, URL deep-linking, native-layer registration, and a one-step `install:geolibre`
+- **GeoLibre Host Contract** - Typed `GeoLibreAppAPI`/`GeoLibrePlugin` contract, URL deep-linking, native-layer registration, native right-sidebar panels, and a one-step `install:geolibre`
 - **TypeScript Support** - Full TypeScript support with type definitions
 - **React Integration** - React wrapper component and custom hooks
 - **IControl Implementation** - Implements MapLibre's IControl interface
@@ -121,6 +121,12 @@ does not provide them.
 | `resolvePluginAssetUrl`         | no       | Resolve a fetchable URL for an asset bundled in the plugin |
 | `registerExternalNativeLayer`   | no       | Hand the host a dataset to render as a native layer     |
 | `unregisterExternalNativeLayer` | no       | Remove a previously registered native layer             |
+| `registerRightPanel`            | no       | Register a native right-sidebar panel (returns unregister) |
+| `unregisterRightPanel`          | no       | Remove a registered right panel (closing it if active)  |
+| `openRightPanel`                | no       | Make a right panel the active workspace and expand it    |
+| `collapseRightPanel`            | no       | Collapse the active right panel to its rail              |
+| `closeRightPanel`               | no       | Close the active right panel and restore the Style panel |
+| `getActiveRightPanel`           | no       | Id of the active right panel, or `null`                 |
 
 ### Plugin lifecycle hooks (`GeoLibrePlugin`)
 
@@ -157,6 +163,44 @@ options; `PluginControl.loadFromUrl` shows the end-to-end pattern, and the
 control unregisters its layers automatically when removed. Outside GeoLibre the
 callbacks default to no-ops, so the control still works as a standalone MapLibre
 control.
+
+### Right sidebar panel
+
+When the host exposes `registerRightPanel`, a plugin can register a native
+right-sidebar panel that docks beside GeoLibre's built-in Style panel and
+behaves like a first-class part of the workspace, instead of emulating one with
+a fixed overlay. The host renders the panel chrome (a header with collapse and
+close buttons, a collapsible rail, and a resize handle); the plugin owns only
+the body via `render(container)`, using plain DOM so it never has to share the
+host's UI framework. Only one plugin right panel is the active right-side
+workspace at a time: while one is active GeoLibre collapses its Style panel to
+its rail and restores it when the plugin panel closes.
+
+The template wires a demonstration panel in `src/lib/geolibre/right-panel.ts`,
+opened from the plugin's `activate` hook and torn down in `deactivate`:
+
+```ts
+const unregister = app.registerRightPanel?.({
+  id: "my-workbench",
+  title: "Workbench",
+  defaultWidth: 320,
+  render(container) {
+    container.textContent = "Rendered by the plugin via registerRightPanel().";
+    return () => {
+      // optional cleanup, run on close/unregister
+    };
+  },
+});
+
+app.openRightPanel?.("my-workbench");     // make it the active workspace
+app.collapseRightPanel?.("my-workbench"); // collapse to the rail
+app.closeRightPanel?.("my-workbench");    // close and restore the Style panel
+```
+
+The container stays mounted across collapse, so any state in your DOM persists.
+The panel is a flex sibling of the map, so opening it shrinks the map view; no
+manual map padding is required. Remove `registerTemplateRightPanel` from
+`src/geolibre.ts` if your plugin only needs a map control.
 
 ### Bundling plugin-local assets
 
