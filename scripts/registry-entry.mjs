@@ -20,7 +20,11 @@ const bundleDir = join(rootDir, "geolibre-plugin");
 const args = process.argv.slice(2);
 const homepageIndex = args.indexOf("--homepage");
 const homepage = homepageIndex === -1 ? undefined : args[homepageIndex + 1];
-const url = args.find((arg, index) => !arg.startsWith("--") && index !== homepageIndex + 1);
+// The URL is the first argument that is neither a flag nor --homepage's value.
+const url = args.find(
+  (arg, index) =>
+    !arg.startsWith("--") && (homepageIndex === -1 || index !== homepageIndex + 1),
+);
 
 if (!url || !/^https:\/\/\S+$/.test(url)) {
   console.error("Usage: npm run registry:entry -- <https release-zip-url> [--homepage <url>]");
@@ -46,6 +50,8 @@ const repository =
     ? packageJson.repository
     : packageJson.repository?.url;
 const repositoryUrl = repository?.replace(/^git\+/, "").replace(/\.git$/, "");
+// The template's placeholder repository URL isn't worth submitting either.
+const homepageUrl = homepage ?? (repositoryUrl?.includes("your-username") ? undefined : repositoryUrl);
 
 const entry = {
   id: manifest.id,
@@ -54,9 +60,7 @@ const entry = {
   ...(manifest.description ? { description: manifest.description } : {}),
   // The template's placeholder author isn't worth submitting.
   ...(author && author !== "Your Name" ? { author } : {}),
-  ...((homepage ?? repositoryUrl)?.startsWith("http")
-    ? { homepage: homepage ?? repositoryUrl }
-    : {}),
+  ...(homepageUrl?.startsWith("http") ? { homepage: homepageUrl } : {}),
   manifestUrl: `plugins/${manifest.id}/plugin.json`,
   source: {
     url,

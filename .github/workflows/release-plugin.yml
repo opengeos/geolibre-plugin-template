@@ -8,27 +8,31 @@ name: Release GeoLibre plugin
 #
 # Tag the release with the plugin version, with or without a leading "v"
 # (v1.2.0 or 1.2.0), matching geolibre-plugin/plugin.json.
+#
+# Two jobs, so that dependency install scripts never run next to a token that
+# can write to the repository: `build` installs, tests and packages with a
+# read-only token; `upload` only attaches the zip and runs a script that uses
+# Node built-ins, with no npm install.
 
 on:
   release:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Check the tag matches the plugin version
         env:
@@ -40,11 +44,35 @@ jobs:
             exit 1
           fi
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Test
         run: npm test
 
       - name: Build the plugin zip
         run: npm run package:geolibre
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plugin-zip
+          path: geolibre-plugin/*.zip
+          if-no-files-found: error
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: plugin-zip
+          path: geolibre-plugin
 
       - name: Attach the zip to the release
         id: zip
@@ -53,7 +81,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           name=$(node -p "const m = require('./geolibre-plugin/plugin.json'); m.id + '-' + m.version + '.zip'")
-          gh release upload "$TAG" "geolibre-plugin/$name" --clobber
+          gh release upload "$TAG" "geolibre-plugin/$name" --clobber --repo "${{ github.repository }}"
           echo "url=${{ github.server_url }}/${{ github.repository }}/releases/download/$TAG/$name" >> "$GITHUB_OUTPUT"
 
       - name: Write the registry entry
@@ -61,7 +89,7 @@ jobs:
           ZIP_URL: ${{ steps.zip.outputs.url }}
           HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          npm run --silent registry:entry -- "$ZIP_URL" --homepage "$HOMEPAGE" > registry-entry.json
+          node scripts/registry-entry.mjs "$ZIP_URL" --homepage "$HOMEPAGE" > registry-entry.json
           id=$(node -p "require('./registry-entry.json').id")
           {
             echo "## Submit to the GeoLibre plugin registry"
