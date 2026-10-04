@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,9 @@ const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const bundleDir = join(rootDir, "geolibre-plugin");
 const manifestPath = join(bundleDir, "plugin.json");
 const CRC_TABLE = createCrcTable();
+// 1980-01-01 00:00, the earliest zip date, written as DOS date/time fields
+// directly so the result doesn't depend on the machine's time zone.
+const FIXED_DOS_DATE_TIME = { date: (1 << 5) | 1, time: 0 };
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const outputPath = join(bundleDir, `${manifest.id}-${manifest.version}.zip`);
 
@@ -19,8 +23,11 @@ if (manifest.style) {
 }
 
 await mkdir(bundleDir, { recursive: true });
-await writeFile(outputPath, await createZip(entries));
+const zip = await createZip(entries);
+await writeFile(outputPath, zip);
 console.log(`Created ${outputPath}`);
+// The GeoLibre plugin registry pins a release zip by this hash (source.sha256).
+console.log(`SHA-256 ${createHash("sha256").update(zip).digest("hex")}`);
 
 async function createZip(entries) {
   const localParts = [];
@@ -31,7 +38,9 @@ async function createZip(entries) {
     const data = await readFile(path);
     const encodedName = Buffer.from(name, "utf8");
     const crc = crc32(data);
-    const { date, time } = dosDateTime(new Date());
+    // A fixed timestamp keeps the zip reproducible: rebuilding the same files
+    // gives the same bytes, and so the same SHA-256 for the plugin registry.
+    const { date, time } = FIXED_DOS_DATE_TIME;
 
     const localHeader = Buffer.alloc(30);
     localHeader.writeUInt32LE(0x04034b50, 0);
@@ -85,19 +94,6 @@ async function createZip(entries) {
   return Buffer.concat([...localParts, centralDirectory, endRecord]);
 }
 
-function dosDateTime(dateValue) {
-  const year = Math.max(1980, dateValue.getFullYear());
-  return {
-    date:
-      ((year - 1980) << 9) |
-      ((dateValue.getMonth() + 1) << 5) |
-      dateValue.getDate(),
-    time:
-      (dateValue.getHours() << 11) |
-      (dateValue.getMinutes() << 5) |
-      (dateValue.getSeconds() >> 1),
-  };
-}
 
 function crc32(data) {
   let crc = 0xffffffff;

@@ -1,0 +1,79 @@
+name: Release GeoLibre plugin
+
+# When a release is published, build the GeoLibre plugin zip, attach it to the
+# release, and write the registry/<id>.json entry for the GeoLibre plugin
+# registry (https://github.com/opengeos/geolibre-plugins) to the job summary,
+# with the zip's URL and SHA-256 already filled in. The zip is reproducible, so
+# re-running this for the same release attaches identical bytes.
+#
+# Tag the release with the plugin version, with or without a leading "v"
+# (v1.2.0 or 1.2.0), matching geolibre-plugin/plugin.json.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag matches the plugin version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(node -p "require('./geolibre-plugin/plugin.json').version")
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "::error::Release tag $TAG doesn't match geolibre-plugin/plugin.json version $version."
+            exit 1
+          fi
+
+      - name: Test
+        run: npm test
+
+      - name: Build the plugin zip
+        run: npm run package:geolibre
+
+      - name: Attach the zip to the release
+        id: zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          name=$(node -p "const m = require('./geolibre-plugin/plugin.json'); m.id + '-' + m.version + '.zip'")
+          gh release upload "$TAG" "geolibre-plugin/$name" --clobber
+          echo "url=${{ github.server_url }}/${{ github.repository }}/releases/download/$TAG/$name" >> "$GITHUB_OUTPUT"
+
+      - name: Write the registry entry
+        env:
+          ZIP_URL: ${{ steps.zip.outputs.url }}
+          HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          npm run --silent registry:entry -- "$ZIP_URL" --homepage "$HOMEPAGE" > registry-entry.json
+          id=$(node -p "require('./registry-entry.json').id")
+          {
+            echo "## Submit to the GeoLibre plugin registry"
+            echo
+            echo "Add this as \`registry/$id.json\` in a pull request to"
+            echo "[opengeos/geolibre-plugins](https://github.com/opengeos/geolibre-plugins)"
+            echo "(or replace the existing file for an update). You can add \`categories\`"
+            echo "and \`minGeoLibreVersion\`; see the"
+            echo "[registry format](https://plugins.geolibre.app/registry/)."
+            echo
+            echo '```json'
+            cat registry-entry.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat registry-entry.json

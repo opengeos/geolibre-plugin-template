@@ -16,6 +16,7 @@ A template for creating GeoLibre Desktop plugins backed by MapLibre GL JS contro
 - **IControl Implementation** - Implements MapLibre's IControl interface
 - **Modern Build Setup** - Vite-based library and GeoLibre bundle builds
 - **Testing** - Vitest setup with React Testing Library
+- **Registry Publishing** - A release workflow that attaches a reproducible plugin zip and prints the [GeoLibre plugin registry](https://plugins.geolibre.app/plugins/) entry for it
 - **CI/CD Ready** - GitHub Actions for npm publishing and GitHub Pages
 
 ## Installation
@@ -33,7 +34,8 @@ npm install
 npm run package:geolibre
 ```
 
-This creates:
+This creates the zip below and prints its SHA-256. The zip is reproducible:
+building the same files always gives the same bytes.
 
 ```text
 geolibre-plugin/geolibre-plugin-template-0.1.0.zip
@@ -90,6 +92,39 @@ GEOLIBRE_PLUGINS_DIR=/path/to/plugins npm run install:geolibre
 Restart GeoLibre Desktop (or rebuild/restart the GeoLibre dev server for `--web`)
 to load the plugin. The script reads `geolibre-plugin/plugin.json`, so it works
 for any plugin built from this template with no edits.
+
+## Publish to the GeoLibre plugin registry
+
+The [GeoLibre plugin registry](https://plugins.geolibre.app/plugins/) lists
+plugins users can install from **Settings → Manage Plugins**. Your code stays in
+your repository: the registry points at a release zip and pins it by its
+SHA-256, then serves it to GeoLibre.
+
+1. Set the version in `geolibre-plugin/plugin.json` (and the matching `version`
+   in `src/geolibre.ts` and `package.json`).
+2. Publish a GitHub release tagged with that version (`v1.2.0` or `1.2.0`). The
+   [Release GeoLibre plugin](.github/workflows/release-plugin.yml) workflow
+   builds the zip, attaches it to the release, and writes the
+   `registry/<id>.json` entry, URL and SHA-256 included, to the run's summary.
+3. Open a pull request to
+   [opengeos/geolibre-plugins](https://github.com/opengeos/geolibre-plugins)
+   adding that entry as `registry/<id>.json`. Optionally add `categories` and
+   `minGeoLibreVersion` (see the
+   [registry format](https://plugins.geolibre.app/registry/)). CI downloads
+   and validates the zip and posts a preview of GeoLibre with your plugin.
+4. Once a maintainer merges it, the plugin appears in Manage Plugins and on its
+   own page in the catalog.
+
+To release an update, repeat with a new version: a published version never
+changes, so a new zip always needs a new version number.
+
+Without the workflow, build and hash the zip yourself, upload it, and print the
+entry for its URL:
+
+```bash
+npm run package:geolibre
+npm run registry:entry -- https://github.com/<owner>/<repo>/releases/download/v1.2.0/<id>-1.2.0.zip
+```
 
 ## GeoLibre integration
 
@@ -154,7 +189,7 @@ dispatches the parsed parameters to `handleUrlParameters`. The template wires
 this to the DOM-free helpers in `src/lib/utils/deep-link.ts`:
 
 ```text
-https://geolibre.app/?plugin-data=https://example.com/dataset.zip
+https://web.geolibre.app/?plugin-data=https://example.com/dataset.zip
 ```
 
 Rename `PLUGIN_DATA_PARAM` and adapt the `DeepLinkConsumer` interface (which
@@ -463,6 +498,7 @@ npm run dev
 | `npm run build:lib`        | Build the standalone MapLibre library    |
 | `npm run build:geolibre`   | Build the GeoLibre ESM and CSS bundle    |
 | `npm run package:geolibre` | Build and zip the GeoLibre plugin bundle |
+| `npm run registry:entry`   | Print the plugin registry entry for a release zip |
 | `npm run install:geolibre` | Build and install the bundle into GeoLibre |
 | `npm run serve:geolibre`   | Serve the unpacked bundle with CORS      |
 | `npm run build:examples`   | Build examples for deployment            |
