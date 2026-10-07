@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: plugin-zip
           path: geolibre-plugin
