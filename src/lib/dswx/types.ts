@@ -117,4 +117,6 @@ export interface GranuleSearchResult {
   };
   /** Combined bounds across all footprints `[w, s, e, n]`, if any. */
   bounds?: BBox;
+  /** Total granules CMR matched; exceeds `granules.length` when capped. */
+  total: number;
 }

@@ -58,7 +58,6 @@ export async function searchGranules(
 ): Promise<GranuleSearchResult> {
   const query = new URLSearchParams();
   query.set("short_name", params.shortName);
-  query.set("page_size", String(params.count ?? 50));
   query.set("sort_key", "-start_date");
   if (params.bbox) {
     // CMR bounding_box is "W,S,E,N".
@@ -68,13 +67,33 @@ export async function searchGranules(
     query.set("temporal", `${params.start}T00:00:00Z,${params.end}T23:59:59Z`);
   }
 
-  const url = `${CMR_BASE}/granules.umm_json?${query.toString()}`;
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) {
-    throw new Error(`CMR granule search failed (${res.status})`);
-  }
-  const json = (await res.json()) as { items?: UmmGranuleItem[] };
-  const items = json.items ?? [];
+  // Page with CMR-Search-After until `count` granules are collected (or the
+  // results run out). `total` is CMR's hit count, so callers can report capping.
+  const limit = params.count ?? 50;
+  query.set("page_size", String(Math.min(limit, 2000)));
+  const items: UmmGranuleItem[] = [];
+  let total = 0;
+  let searchAfter: string | null = null;
+  do {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (searchAfter) headers["CMR-Search-After"] = searchAfter;
+    const res = await fetch(
+      `${CMR_BASE}/granules.umm_json?${query.toString()}`,
+      { headers },
+    );
+    if (!res.ok) {
+      throw new Error(`CMR granule search failed (${res.status})`);
+    }
+    const json = (await res.json()) as {
+      hits?: number;
+      items?: UmmGranuleItem[];
+    };
+    total = json.hits ?? total;
+    const page = json.items ?? [];
+    items.push(...page);
+    searchAfter = page.length ? res.headers.get("CMR-Search-After") : null;
+  } while (searchAfter && items.length < limit);
+  items.length = Math.min(items.length, limit);
 
   const granules = items.map(parseGranule);
   const features = granules
@@ -97,6 +116,7 @@ export async function searchGranules(
     granules,
     featureCollection: { type: "FeatureCollection", features },
     bounds: combinedBounds(granules),
+    total,
   };
 }
 

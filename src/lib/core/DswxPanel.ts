@@ -257,7 +257,7 @@ export class DswxPanel {
         bbox,
         start: start || undefined,
         end: end || undefined,
-        count: 100,
+        count: 1000,
       });
       this._observations = groupObservations(result.granules);
       this._selected.clear();
@@ -268,7 +268,11 @@ export class DswxPanel {
       this._el.results.hidden = this._observations.length === 0;
       this._setStatus(
         this._observations.length
-          ? `Found ${this._observations.length} observation(s) from ${result.granules.length} granule(s).`
+          ? `Found ${this._observations.length} observation(s) from ${result.granules.length} granule(s)${
+              result.total > result.granules.length
+                ? ` (newest ${result.granules.length} of ${result.total}; narrow the dates or area for the rest)`
+                : ""
+            }.`
           : "No observations found for that area and date range.",
       );
       if (result.bounds) this._options.fitBounds?.(result.bounds);
