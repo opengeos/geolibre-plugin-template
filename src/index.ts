@@ -28,6 +28,10 @@ export type {
   GeoLibreToolbarSubmenu,
   GeoLibreToolbarSeparator,
   GeoLibreFloatingPanelRegistration,
+  GeoLibreDeckGL,
+  GeoLibrePointCloudLayerOptions,
+  GeoLibreTemporalLayerAdapter,
+  GeoLibreTimeGranularity,
 } from './lib/geolibre/host-api';
 
 // GeoLibre plugin UI surface demonstrations

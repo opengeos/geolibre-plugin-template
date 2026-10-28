@@ -122,8 +122,14 @@ export interface GeoLibreControl {
  * when a host build does not provide them.
  *
  * @typeParam TControl - The plugin's concrete control type.
+ * @typeParam TMap - The map type {@link getMap} returns. Bind it to your
+ *   MapLibre type (`GeoLibreAppAPI<MyControl, maplibregl.Map>`); it defaults to
+ *   `unknown` so this contract stays free of MapLibre imports.
  */
-export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreControl> {
+export interface GeoLibreAppAPI<
+  TControl extends GeoLibreControl = GeoLibreControl,
+  TMap = unknown,
+> {
   /**
    * Add the plugin's control to the map. Returns `false` when the host refuses
    * (for example, the slot is occupied), in which case the plugin should treat
@@ -215,6 +221,164 @@ export interface GeoLibreAppAPI<TControl extends GeoLibreControl = GeoLibreContr
   closeFloatingPanel?: (id: string) => void;
   /** Ids of the currently open floating panels, in stacking order. */
   getOpenFloatingPanels?: () => string[];
+
+  // --- Map access -----------------------------------------------------------
+  // The members below mirror a subset of GeoLibre's plugin API that data and
+  // visualization plugins commonly need. The full, authoritative contract is
+  // GeoLibre's `docs/plugin-api.md`; every member here is optional, so call it
+  // with optional chaining and degrade when a host build lacks it.
+
+  /**
+   * The primary MapLibre map, or `null` when there is none (on the globe, or a
+   * non-MapLibre renderer). Prefer {@link getViewBounds} for the viewport,
+   * which also works where this returns `null`.
+   */
+  getMap?: () => TMap | null;
+  /** The visible extent as `[west, south, east, north]` in degrees, or `null`. */
+  getViewBounds?: () => [number, number, number, number] | null;
+  /** The map projection the host keeps (it reverts a raw `map.setProjection`). */
+  getMapProjection?: () => "globe" | "mercator";
+  /**
+   * Set the map projection persistently. deck.gl-backed plugins need
+   * `"mercator"`; the globe breaks deck.gl tile traversal.
+   */
+  setMapProjection?: (projection: "globe" | "mercator") => void;
+
+  // --- Shared libraries: use the host's copy, never bundle your own ----------
+
+  /**
+   * GeoLibre's own deck.gl modules. Render deck.gl layers on the host's single
+   * instance: deck.gl and luma.gl throw on a second copy and share global
+   * singletons, so a bundled copy fails to render. See {@link GeoLibreDeckGL}.
+   */
+  getDeckGL?: () => Promise<GeoLibreDeckGL>;
+  /**
+   * GeoLibre's own proj4 module namespace (`default` is the callable library),
+   * typed `unknown` here; cast it to `typeof import("proj4")`.
+   */
+  getProj4?: () => Promise<unknown>;
+  /**
+   * GeoLibre's own `maplibre-gl-raster` module, for rendering Cloud-Optimized
+   * GeoTIFFs on the host's deck.gl. Typed `unknown` here; cast it to
+   * `typeof import("maplibre-gl-raster")` (install the package as a dev
+   * dependency for its types and import it type-only).
+   */
+  getMaplibreGlRaster?: () => Promise<unknown>;
+  /**
+   * GeoLibre's own `maplibre-gl-lidar` module: its loaders decode LAS/LAZ/COPC
+   * with the WebAssembly the host serves, and its layers render on the host's
+   * deck.gl. Typed `unknown` here; cast it to `typeof import("maplibre-gl-lidar")`
+   * (install the package as a dev dependency for its types and import it
+   * type-only).
+   */
+  getMaplibreGlLidar?: () => Promise<unknown>;
+
+  // --- Layers in the host's Layers panel --------------------------------------
+
+  /** Add a GeoJSON layer to the Layers panel. Returns the new layer's id. */
+  addGeoJsonLayer?: (name: string, data: GeoLibreFeatureCollection, sourcePath?: string) => string;
+  /**
+   * Replace a GeoJSON layer's features in place, keeping its style and position.
+   * Returns `false` for an unknown, non-GeoJSON, or currently edited layer.
+   */
+  updateGeoJsonLayer?: (layerId: string, data: GeoLibreFeatureCollection) => boolean;
+  /**
+   * Add a point cloud (LAS/LAZ/COPC file, or an EPT `ept.json`) as a host LiDAR
+   * layer. A URL may be HTTP(S) or `s3://`; a `File` or bytes needs a
+   * {@link GeoLibrePointCloudLayerOptions.fileName}. Resolves with the layer id.
+   */
+  addPointCloudLayer?: (
+    source: string | File | ArrayBuffer | Uint8Array,
+    options?: GeoLibrePointCloudLayerOptions,
+  ) => Promise<string>;
+  /** Remove a layer by id; unknown ids are ignored. */
+  removeLayer?: (layerId: string) => void;
+  /** Show or hide a layer. */
+  setLayerVisibility?: (layerId: string, visible: boolean) => void;
+  /** Ids of the layers in the Layers panel. */
+  getLayers?: () => string[];
+  /** Call `callback` with the layer ids whenever they change. Returns an unsubscribe. */
+  onLayersChanged?: (callback: (layerIds: string[]) => void) => () => void;
+
+  // --- Time Slider ------------------------------------------------------------
+
+  /**
+   * Make a layer the plugin renders itself drivable by the host's Time Slider.
+   * Pass `{ bind: true }` to bind it right away and open the slider. Returns an
+   * unregister function. See {@link GeoLibreTemporalLayerAdapter}.
+   */
+  registerTemporalLayer?: (
+    layerId: string,
+    adapter: GeoLibreTemporalLayerAdapter,
+    options?: { bind?: boolean },
+  ) => () => void;
+  /** Drop a layer's temporal adapter. Removing the layer does this too. */
+  unregisterTemporalLayer?: (layerId: string) => void;
+
+  // --- Browser address --------------------------------------------------------
+
+  /**
+   * Write this plugin's query parameters to the address bar, so the current
+   * state can be shared as a deep link (see {@link GeoLibrePlugin.urlParameterNames}).
+   */
+  setUrlParameters?: (params: URLSearchParams) => void;
+}
+
+/**
+ * GeoLibre's own deck.gl modules, resolved by {@link GeoLibreAppAPI.getDeckGL}.
+ * Each is typed `unknown` so this contract does not depend on deck.gl; cast to
+ * the module you use, e.g. `deck.layers as typeof import("@deck.gl/layers")`,
+ * with deck.gl installed as a dev dependency and imported type-only.
+ */
+export interface GeoLibreDeckGL {
+  /** `@deck.gl/core` */
+  core: unknown;
+  /** `@deck.gl/layers` */
+  layers: unknown;
+  /** `@deck.gl/aggregation-layers` */
+  aggregationLayers: unknown;
+  /** `@deck.gl/geo-layers` */
+  geoLayers: unknown;
+  /** `@deck.gl/mesh-layers` */
+  meshLayers: unknown;
+  /** `@deck.gl/mapbox` (`MapboxOverlay` for interleaved MapLibre rendering) */
+  mapbox: unknown;
+}
+
+/** Options for {@link GeoLibreAppAPI.addPointCloudLayer}. */
+export interface GeoLibrePointCloudLayerOptions {
+  /** Layers panel name (default: the URL's file name, or `fileName`). */
+  name?: string;
+  /**
+   * File name the loader sees for a `File` or bytes; its extension picks the
+   * loader (`.las`, `.laz`, `.copc.laz`). Required for bytes.
+   */
+  fileName?: string;
+  /** Fly to the point cloud once it loads (default `true`). */
+  zoomTo?: boolean;
+}
+
+/** Stepping unit for the Time Slider. */
+export type GeoLibreTimeGranularity = "hour" | "day" | "month" | "year";
+
+/**
+ * How the Time Slider drives a layer the plugin renders itself, passed to
+ * {@link GeoLibreAppAPI.registerTemporalLayer}.
+ */
+export interface GeoLibreTemporalLayerAdapter {
+  /**
+   * The layer's time coordinate, in index order: `Date`s, epoch milliseconds
+   * or seconds, bare calendar years, or date strings.
+   */
+  getTimeValues: () => ReadonlyArray<Date | number | string>;
+  /** Apply a date to the layer, snapping it to the nearest time value. */
+  setTime: (date: Date) => void | Promise<void>;
+  /** Name of the dimension being driven, persisted with the project (default `"time"`). */
+  dimension?: string;
+  /** Stepping unit; derived from the axis span when omitted. */
+  granularity?: GeoLibreTimeGranularity;
+  /** Units offered by the slider's granularity controls. */
+  displayUnits?: GeoLibreTimeGranularity[];
 }
 
 /**
@@ -298,8 +462,12 @@ export interface GeoLibreFloatingPanelRegistration {
  * plugin declares it.
  *
  * @typeParam TControl - The plugin's concrete control type.
+ * @typeParam TMap - The map type `app.getMap()` returns (see {@link GeoLibreAppAPI}).
  */
-export interface GeoLibrePlugin<TControl extends GeoLibreControl = GeoLibreControl> {
+export interface GeoLibrePlugin<
+  TControl extends GeoLibreControl = GeoLibreControl,
+  TMap = unknown,
+> {
   /** Stable plugin id; must match `plugin.json`'s `id`. */
   id: string;
   /** Display name; must match `plugin.json`'s `name`. */
@@ -316,32 +484,32 @@ export interface GeoLibrePlugin<TControl extends GeoLibreControl = GeoLibreContr
    * Activate the plugin: create and add the control. Return `false` (or remain
    * unactivated) if the control could not be added.
    */
-  activate: (app: GeoLibreAppAPI<TControl>) => boolean | void;
+  activate: (app: GeoLibreAppAPI<TControl, TMap>) => boolean | void;
   /**
    * Deactivate the plugin: capture any state to restore later, then remove the
    * control.
    */
-  deactivate: (app: GeoLibreAppAPI<TControl>) => void;
+  deactivate: (app: GeoLibreAppAPI<TControl, TMap>) => void;
   /**
    * Handle deep-link query parameters declared in {@link urlParameterNames}.
    * Dispatched by the host once the plugin is active. May be async.
    */
   handleUrlParameters?: (
-    app: GeoLibreAppAPI<TControl>,
+    app: GeoLibreAppAPI<TControl, TMap>,
     params: URLSearchParams,
   ) => void | Promise<void>;
   /** Report the control's current dock position (for persistence). */
   getMapControlPosition?: () => GeoLibreMapControlPosition;
   /** Move the control to a new dock position. */
   setMapControlPosition?: (
-    app: GeoLibreAppAPI<TControl>,
+    app: GeoLibreAppAPI<TControl, TMap>,
     position: GeoLibreMapControlPosition,
   ) => boolean | void;
   /** Serialize plugin state so the host can save it with the project. */
   getProjectState?: () => unknown;
   /** Restore plugin state previously produced by {@link getProjectState}. */
   applyProjectState?: (
-    app: GeoLibreAppAPI<TControl>,
+    app: GeoLibreAppAPI<TControl, TMap>,
     state: unknown,
   ) => boolean | void;
 }

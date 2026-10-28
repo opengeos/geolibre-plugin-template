@@ -169,6 +169,50 @@ does not provide them.
 | `openFloatingPanel`             | no       | Open a floating panel (or bring it to the front)        |
 | `closeFloatingPanel`            | no       | Close an open floating panel                            |
 | `getOpenFloatingPanels`         | no       | Ids of open floating panels, in stacking order          |
+| `getMap`                        | no       | The primary MapLibre map, or `null` (e.g. on the globe) |
+| `getViewBounds`                 | no       | Visible extent `[west, south, east, north]`             |
+| `getMapProjection` / `setMapProjection` | no | Read or persistently set `"globe"` / `"mercator"`   |
+| `getDeckGL`                     | no       | The host's deck.gl modules (never bundle your own)      |
+| `getProj4`                      | no       | The host's proj4 module                                 |
+| `getMaplibreGlRaster`           | no       | The host's `maplibre-gl-raster` module                  |
+| `getMaplibreGlLidar`            | no       | The host's `maplibre-gl-lidar` module                   |
+| `addGeoJsonLayer`               | no       | Add a GeoJSON layer to the Layers panel                 |
+| `updateGeoJsonLayer`            | no       | Replace a GeoJSON layer's features in place             |
+| `addPointCloudLayer`            | no       | Add a LAS/LAZ/COPC/EPT point cloud as a host LiDAR layer |
+| `removeLayer`                   | no       | Remove a layer by id                                    |
+| `setLayerVisibility`            | no       | Show or hide a layer                                    |
+| `getLayers` / `onLayersChanged` | no       | List layer ids / subscribe to changes                   |
+| `registerTemporalLayer`         | no       | Drive a plugin-rendered layer from the Time Slider      |
+| `unregisterTemporalLayer`       | no       | Drop a temporal adapter                                 |
+| `setUrlParameters`              | no       | Write this plugin's query parameters to the address bar |
+
+This is the subset of GeoLibre's plugin API most plugins need; the
+authoritative and complete contract is GeoLibre's
+[Plugin API docs](https://github.com/opengeos/GeoLibre/blob/main/docs/plugin-api.md).
+Members a host build added after this template are simply absent from the
+types, not unavailable: declare them locally if you need them.
+
+### Shared libraries: use the host's copy
+
+deck.gl and luma.gl throw when a second copy loads into the same page
+(luma.gl: "already initialized") and share global singletons, so a plugin
+must **never bundle** them, or libraries built on them such as
+`maplibre-gl-raster` and `maplibre-gl-lidar`. Ask the host instead, and
+import the packages for their types only:
+
+```ts
+import type * as Lidar from "maplibre-gl-lidar"; // dev dependency, types only
+
+const lidar = (await app.getMaplibreGlLidar?.()) as typeof Lidar | undefined;
+if (!lidar) return; // host without the capability: hide the feature
+const deck = await app.getDeckGL?.();
+const layers = deck?.layers as typeof import("@deck.gl/layers") | undefined;
+```
+
+`npm run build:geolibre` enforces this: the `forbidBundledHostLibraries()`
+guard in `vite.geolibre.config.ts` fails the build when one of these modules
+is pulled into the bundle by a value import. Type-only imports are erased
+before bundling and pass.
 
 ### Plugin lifecycle hooks (`GeoLibrePlugin`)
 
