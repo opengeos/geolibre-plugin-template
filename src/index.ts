@@ -20,6 +20,7 @@ export type {
   GeoLibreMapControlPosition,
   GeoLibreNativeLayerRegistration,
   GeoLibreNativeLayerStyle,
+  GeoLibreFeature,
   GeoLibreFeatureCollection,
   GeoLibreRightPanelRegistration,
   GeoLibreToolbarMenu,

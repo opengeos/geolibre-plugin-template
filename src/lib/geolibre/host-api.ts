@@ -26,7 +26,15 @@ export type GeoLibreMapControlPosition =
  */
 export interface GeoLibreFeatureCollection {
   type: "FeatureCollection";
-  features: unknown[];
+  features: GeoLibreFeature[];
+}
+
+/** Minimal GeoJSON `Feature` shape; see {@link GeoLibreFeatureCollection}. */
+export interface GeoLibreFeature {
+  type: "Feature";
+  geometry: unknown;
+  properties: Record<string, unknown> | null;
+  id?: string | number;
 }
 
 /**
@@ -482,9 +490,10 @@ export interface GeoLibrePlugin<
   urlParameterNames?: string[];
   /**
    * Activate the plugin: create and add the control. Return `false` (or remain
-   * unactivated) if the control could not be added.
+   * unactivated) if the control could not be added. May be async, for example
+   * to await a shared-library accessor such as {@link GeoLibreAppAPI.getDeckGL}.
    */
-  activate: (app: GeoLibreAppAPI<TControl, TMap>) => boolean | void;
+  activate: (app: GeoLibreAppAPI<TControl, TMap>) => boolean | void | Promise<boolean | void>;
   /**
    * Deactivate the plugin: capture any state to restore later, then remove the
    * control.

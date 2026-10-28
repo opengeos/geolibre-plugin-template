@@ -202,11 +202,15 @@ import the packages for their types only:
 
 ```ts
 import type * as Lidar from "maplibre-gl-lidar"; // dev dependency, types only
+import type { GeoLibreAppAPI } from "./lib/geolibre/host-api";
 
-const lidar = (await app.getMaplibreGlLidar?.()) as typeof Lidar | undefined;
-if (!lidar) return; // host without the capability: hide the feature
-const deck = await app.getDeckGL?.();
-const layers = deck?.layers as typeof import("@deck.gl/layers") | undefined;
+async function setUpLidar(app: GeoLibreAppAPI) {
+  const lidar = (await app.getMaplibreGlLidar?.()) as typeof Lidar | undefined;
+  if (!lidar) return; // host without the capability: hide the feature
+  const deck = await app.getDeckGL?.();
+  const layers = deck?.layers as typeof import("@deck.gl/layers") | undefined;
+  // ...
+}
 ```
 
 `npm run build:geolibre` enforces this: the `forbidBundledHostLibraries()`
