@@ -34,6 +34,8 @@ function createPanel(app: AppAPI): DswxPanel {
     unregisterLayer: (id) => app.unregisterExternalNativeLayer?.(id),
     fitBounds: (bounds) => app.fitBounds?.(bounds),
     getMapBounds: () => readMapBounds(app),
+    getMap: () => app.getMap?.() ?? null,
+    exportText: (filename, content) => app.exportTextFile?.(filename, content),
   });
   if (pendingState) next.setState(pendingState);
   return next;

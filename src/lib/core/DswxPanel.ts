@@ -1,10 +1,11 @@
+import type { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoLibreNativeLayerRegistration } from "../geolibre/host-api";
 import {
   granuleBands,
   resolveConceptId,
   searchGranules,
 } from "../dswx/cmr";
-import { colormapForBand } from "../dswx/colormaps";
+import { colormapForBand, isDswxWaterBand } from "../dswx/colormaps";
 import { bandRenderDefaults, DSWX_PRODUCTS, getProduct } from "../dswx/products";
 import {
   buildTileJsonUrl,
@@ -13,11 +14,19 @@ import {
   tileSizeFromTemplate,
 } from "../dswx/titiler";
 import { groupObservations, observationTemporal } from "../dswx/observations";
+import {
+  computeWaterTimeSeries,
+  timeSeriesToCsv,
+  type WaterAreaPoint,
+} from "../dswx/timeseries";
 import type { BBox, DswxGranule, Observation } from "../dswx/types";
+import { drawPolygon, verticesToFeature, type LonLat } from "./aoiDraw";
+import { renderTimeSeriesChart } from "./timeSeriesChart";
 
 /** Footprint overlay layer id (registered with the host). */
 const FOOTPRINTS_LAYER = "dswx-granule-footprints";
 const HIGHLIGHT_LAYER = "dswx-footprint-highlight";
+const AOI_LAYER = "dswx-time-series-aoi";
 
 /** Persisted form state (saved with the GeoLibre project). */
 export interface DswxState {
@@ -38,6 +47,10 @@ export interface DswxPanelOptions {
   fitBounds?: (bounds: BBox) => void;
   /** Current map extent, or null when unavailable. */
   getMapBounds?: () => BBox | null;
+  /** Raw MapLibre map for AOI drawing; null/absent disables drawing. */
+  getMap?: () => MapLibreMap | null;
+  /** Save a text file (CSV export). */
+  exportText?: (filename: string, content: string) => void;
 }
 
 function isoDay(d: Date): string {
@@ -93,6 +106,10 @@ export class DswxPanel {
   private _displayed = new Set<string>();
   private _hasFootprints = false;
   private _hasHighlight = false;
+  private _aoi: ReturnType<typeof verticesToFeature> | null = null;
+  private _hasAoiLayer = false;
+  private _series: WaterAreaPoint[] = [];
+  private _seriesAbort?: AbortController;
 
   private _el: Record<string, HTMLElement> = {};
 
@@ -150,6 +167,21 @@ export class DswxPanel {
           <button type="button" class="dswx-primary" data-k="display" disabled>Display</button>
           <button type="button" data-k="clear">Clear</button>
         </div>
+        <details data-k="tsSection"><summary>Water-area time series</summary>
+          <div class="dswx-hint">Draw an area, then chart open and partial water
+            across every observation found by the search. Click to add vertices,
+            double-click to finish, Esc to cancel.</div>
+          <div class="dswx-row">
+            <button type="button" data-k="drawAoi">Draw AOI</button>
+            <button type="button" data-k="clearAoi" disabled>Clear AOI</button>
+          </div>
+          <div class="dswx-row">
+            <button type="button" class="dswx-primary" data-k="runSeries" disabled>Run</button>
+            <button type="button" data-k="exportSeries" disabled>Export CSV</button>
+          </div>
+          <div class="dswx-hint" data-k="seriesStatus" role="status"></div>
+          <div data-k="chart"></div>
+        </details>
       </div>`;
     container.appendChild(root);
 
@@ -169,6 +201,15 @@ export class DswxPanel {
     this._el.display.addEventListener("click", () => void this._onDisplay());
     this._el.clear.addEventListener("click", () => this._clearDisplayed());
     this._el.band.addEventListener("change", () => this._applyBandDefaults());
+    this._el.drawAoi.addEventListener("click", () => void this._onDrawAoi());
+    this._el.clearAoi.addEventListener("click", () => this._clearAoi());
+    this._el.runSeries.addEventListener("click", () => void this._onRunSeries());
+    this._el.exportSeries.addEventListener("click", () => this._onExportSeries());
+    if (!this._options.getMap?.()) {
+      this._el.drawAoi.setAttribute("disabled", "");
+      this._el.seriesStatus.textContent =
+        "Drawing needs the MapLibre map renderer.";
+    }
   }
 
   /** Remove the UI and every layer this panel added to the map. */
@@ -176,6 +217,8 @@ export class DswxPanel {
     this._readForm();
     this._clearDisplayed();
     this._removeFootprints();
+    this._seriesAbort?.abort();
+    this._clearAoi();
     this._root?.remove();
     this._root = undefined;
     this._el = {};
@@ -266,6 +309,7 @@ export class DswxPanel {
       this._renderFootprints(result.featureCollection);
       this._renderRows();
       this._el.results.hidden = this._observations.length === 0;
+      this._setSeries([]);
       this._setStatus(
         this._observations.length
           ? `Found ${this._observations.length} observation(s) from ${result.granules.length} granule(s)${
@@ -535,6 +579,163 @@ export class DswxPanel {
     }
   }
 
+  // --- Time series ------------------------------------------------------
+
+  private _setSeriesStatus(message: string): void {
+    if (this._el.seriesStatus) this._el.seriesStatus.textContent = message;
+  }
+
+  private _updateSeriesButtons(): void {
+    if (!this._root) return;
+    this._el.clearAoi.toggleAttribute("disabled", !this._aoi);
+    this._el.runSeries.toggleAttribute(
+      "disabled",
+      !this._aoi || this._observations.length === 0,
+    );
+    this._el.exportSeries.toggleAttribute("disabled", this._series.length === 0);
+  }
+
+  private _drawAoiPreview(vertices: LonLat[]): void {
+    if (this._hasAoiLayer) this._options.unregisterLayer?.(AOI_LAYER);
+    this._hasAoiLayer = false;
+    if (vertices.length < 2) return;
+    // Show a closed polygon once there are 3+ vertices, else just the line.
+    const geometry =
+      vertices.length >= 3
+        ? verticesToFeature(vertices).geometry
+        : { type: "LineString", coordinates: vertices };
+    this._options.registerLayer?.({
+      id: AOI_LAYER,
+      name: "DSWx time series AOI",
+      type: "geojson",
+      source: { type: "geojson" },
+      nativeLayerIds: [],
+      geojson: {
+        type: "FeatureCollection",
+        features: [{ type: "Feature", geometry, properties: {} }],
+      } as never,
+      opacity: 1,
+      style: {
+        fillColor: "#ef4444",
+        fillOpacity: 0.1,
+        strokeColor: "#ef4444",
+        strokeWidth: 2,
+      },
+      metadata: { sourceKind: "dswx-time-series-aoi" },
+    });
+    this._hasAoiLayer = true;
+  }
+
+  private async _onDrawAoi(): Promise<void> {
+    const map = this._options.getMap?.();
+    if (!map) return;
+    this._clearAoi();
+    this._el.drawAoi.setAttribute("disabled", "");
+    this._setSeriesStatus("Click the map to add vertices; double-click to finish.");
+    const vertices = await drawPolygon(map, {
+      onChange: (v) => this._drawAoiPreview(v),
+    });
+    this._el.drawAoi?.removeAttribute("disabled");
+    if (!vertices) {
+      this._clearAoi();
+      this._setSeriesStatus("AOI cancelled (a polygon needs 3+ vertices).");
+      return;
+    }
+    this._aoi = verticesToFeature(vertices);
+    this._drawAoiPreview(vertices);
+    this._setSeriesStatus("AOI set.");
+    this._updateSeriesButtons();
+  }
+
+  private _clearAoi(): void {
+    if (this._hasAoiLayer) this._options.unregisterLayer?.(AOI_LAYER);
+    this._hasAoiLayer = false;
+    this._aoi = null;
+    this._setSeries([]);
+    this._updateSeriesButtons();
+  }
+
+  private _setSeries(points: WaterAreaPoint[]): void {
+    this._series = points;
+    if (this._el.chart) {
+      this._el.chart.replaceChildren(
+        ...(points.length
+          ? [
+              renderTimeSeriesChart(points, (i) =>
+                this._selectObservation(points[i].observationId),
+              ),
+            ]
+          : []),
+      );
+    }
+    this._updateSeriesButtons();
+  }
+
+  /** Select (only) the given observation in the list. */
+  private _selectObservation(id: string): void {
+    if (!this._observations.some((o) => o.id === id)) return;
+    this._selected.clear();
+    this._selected.add(id);
+    this._lastAnchor = this._observations.findIndex((o) => o.id === id);
+    this._syncSelection();
+    this._el.rows
+      .querySelector<HTMLElement>(`tr[data-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }
+
+  private async _onRunSeries(): Promise<void> {
+    this._readForm();
+    const product = getProduct(this._state.product);
+    if (!product || !this._aoi || this._observations.length === 0) return;
+    const band = isDswxWaterBand(product.shortName, this._state.band)
+      ? this._state.band
+      : product.render.bands?.[0];
+    if (!band) {
+      this._setSeriesStatus("No water-classification band for this product.");
+      return;
+    }
+    this._seriesAbort?.abort();
+    const abort = (this._seriesAbort = new AbortController());
+    this._el.runSeries.setAttribute("disabled", "");
+    const total = this._observations.length;
+    this._setSeriesStatus(`Computing 0/${total}…`);
+    try {
+      const conceptId =
+        this._observations[0].conceptId ??
+        (await resolveConceptId(product.shortName));
+      const points = await computeWaterTimeSeries({
+        endpoint: this._state.endpoint || DEFAULT_TITILER_CMR_ENDPOINT,
+        conceptId,
+        backend: product.render.backend,
+        band,
+        bandsRegex: product.render.bandsRegex,
+        aoi: this._aoi,
+        observations: this._observations,
+        signal: abort.signal,
+        onProgress: (done, n) => this._setSeriesStatus(`Computing ${done}/${n}…`),
+      });
+      if (abort.signal.aborted) return;
+      this._setSeries(points);
+      const failed = points.filter((p) => p.error).length;
+      this._setSeriesStatus(
+        failed
+          ? `Done; ${failed} of ${points.length} observation(s) failed.`
+          : `Done: ${points.length} observation(s).`,
+      );
+    } catch (err) {
+      this._setSeriesStatus(
+        `Time series failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      this._updateSeriesButtons();
+    }
+  }
+
+  private _onExportSeries(): void {
+    if (this._series.length === 0) return;
+    this._options.exportText?.("dswx-water-area.csv", timeSeriesToCsv(this._series));
+  }
+
   private _clearDisplayed(): void {
     for (const id of this._displayed) this._options.unregisterLayer?.(id);
     this._displayed.clear();
@@ -545,6 +746,7 @@ export class DswxPanel {
     this._observations = [];
     this._selected.clear();
     this._removeFootprints();
+    this._setSeries([]);
     if (this._el.results) this._el.results.hidden = true;
     this._setStatus("");
   }
