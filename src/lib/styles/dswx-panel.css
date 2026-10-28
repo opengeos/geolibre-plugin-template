@@ -1,0 +1,19 @@
+.dswx-panel { padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 10px; }
+.dswx-field { display: flex; flex-direction: column; gap: 4px; }
+.dswx-field label { font-weight: 600; font-size: 12px; }
+.dswx-row { display: flex; gap: 8px; }
+.dswx-row > * { flex: 1; }
+.dswx-panel input, .dswx-panel select, .dswx-panel button { font: inherit; padding: 5px 8px; border-radius: 4px; border: 1px solid #8884; background: transparent; color: inherit; }
+.dswx-panel option { color: initial; }
+.dswx-panel button { cursor: pointer; }
+.dswx-panel button:disabled { opacity: 0.5; cursor: default; }
+.dswx-panel .dswx-primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.dswx-hint, .dswx-status { font-size: 12px; opacity: 0.75; }
+.dswx-status { min-height: 1.2em; }
+.dswx-results { display: flex; flex-direction: column; gap: 10px; }
+.dswx-table-wrap { max-height: 220px; overflow: auto; border: 1px solid #8884; border-radius: 4px; }
+.dswx-panel table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dswx-panel th { text-align: left; position: sticky; top: 0; background: Canvas; padding: 4px 6px; }
+.dswx-panel td { padding: 4px 6px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.dswx-panel tbody tr:hover { background: #8882; }
+.dswx-panel tbody tr.selected { background: #2563eb44; }

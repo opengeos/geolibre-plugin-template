@@ -1,8 +1,8 @@
 {
-  "id": "geolibre-plugin-template",
-  "name": "GeoLibre Plugin Template",
+  "id": "geolibre-dswx",
+  "name": "DSWx",
   "version": "0.1.0",
   "entry": "dist/index.js",
-  "description": "A starter GeoLibre plugin bundle with a MapLibre control.",
+  "description": "Search and display OPERA DSWx-HLS and DSWx-S1 surface water products.",
   "style": "dist/style.css"
 }

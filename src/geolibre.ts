@@ -1,133 +1,96 @@
-import { PluginControl } from "./lib/core/PluginControl";
-import type { PluginState } from "./lib/core/types";
+import { DswxPanel, type DswxState } from "./lib/core/DswxPanel";
 import type {
   GeoLibreAppAPI,
-  GeoLibreMapControlPosition,
   GeoLibrePlugin,
 } from "./lib/geolibre/host-api";
-import { registerTemplateFloatingPanel } from "./lib/geolibre/floating-panel";
-import { registerTemplateRightPanel } from "./lib/geolibre/right-panel";
-import { registerTemplateToolbarMenu } from "./lib/geolibre/toolbar-menu";
-import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
-import "./lib/styles/plugin-control.css";
+import type { BBox } from "./lib/dswx/types";
+import "./lib/styles/dswx-panel.css";
 
-// The host API is generic over the control type; bind it to this plugin's
-// concrete control so the wired callbacks are fully typed.
-type AppAPI = GeoLibreAppAPI<PluginControl>;
+type AppAPI = GeoLibreAppAPI;
 
-let control: PluginControl | null = null;
-let position: GeoLibreMapControlPosition = "top-right";
-let pendingState: Partial<PluginState> | null = null;
-// Disposers for the demo UI surfaces; each is null when the host does not
-// provide that surface. See ./lib/geolibre/{right-panel,floating-panel,
-// toolbar-menu}.ts.
-let disposeRightPanel: (() => void) | null = null;
-let disposeFloatingPanel: (() => void) | null = null;
+const RIGHT_PANEL_ID = "geolibre-dswx-panel";
+const TOOLBAR_MENU_ID = "geolibre-dswx-menu";
+
+let panel: DswxPanel | null = null;
+let pendingState: Partial<DswxState> | null = null;
+let unregisterRightPanel: (() => void) | null = null;
 let disposeToolbarMenu: (() => void) | null = null;
 
-function createControl(app: AppAPI): PluginControl {
-  const nextControl = new PluginControl({
-    collapsed: pendingState?.collapsed ?? true,
-    panelWidth: pendingState?.panelWidth ?? 300,
-    title: "GeoLibre Plugin Template",
-    // Bind optional host capabilities; each falls back to a no-op on hosts (or
-    // standalone usage) that do not provide them.
-    pickFiles: () => app.pickLocalDirectoryFiles?.() ?? Promise.resolve(null),
-    registerNativeLayer: (layer) => app.registerExternalNativeLayer?.(layer),
-    unregisterNativeLayer: (id) => app.unregisterExternalNativeLayer?.(id),
+/** Viewport extent, preferring the renderer-neutral host call. */
+function readMapBounds(app: AppAPI): BBox | null {
+  if (app.getViewBounds) {
+    const bounds = app.getViewBounds();
+    return bounds ? ([...bounds] as BBox) : null;
+  }
+  const map = app.getMap?.();
+  if (!map) return null;
+  const b = map.getBounds();
+  return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+}
+
+function createPanel(app: AppAPI): DswxPanel {
+  const next = new DswxPanel({
+    registerLayer: (layer) => app.registerExternalNativeLayer?.(layer),
+    unregisterLayer: (id) => app.unregisterExternalNativeLayer?.(id),
+    fitBounds: (bounds) => app.fitBounds?.(bounds),
+    getMapBounds: () => readMapBounds(app),
   });
-
-  if (pendingState) {
-    nextControl.setState(pendingState);
-  }
-
-  return nextControl;
+  if (pendingState) next.setState(pendingState);
+  return next;
 }
 
-function isPluginState(value: unknown): value is Partial<PluginState> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  if ("collapsed" in candidate && typeof candidate.collapsed !== "boolean") {
-    return false;
-  }
-  if ("panelWidth" in candidate && typeof candidate.panelWidth !== "number") {
-    return false;
-  }
-  if (
-    "data" in candidate &&
-    (typeof candidate.data !== "object" ||
-      candidate.data === null ||
-      Array.isArray(candidate.data))
-  ) {
-    return false;
-  }
-
-  return true;
+function isDswxState(value: unknown): value is Partial<DswxState> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every((v) => typeof v === "string");
 }
 
-export const plugin: GeoLibrePlugin<PluginControl> = {
-  id: "geolibre-plugin-template",
-  name: "GeoLibre Plugin Template",
+export const plugin: GeoLibrePlugin = {
+  id: "geolibre-dswx",
+  name: "DSWx",
   version: "0.1.0",
-  urlParameterNames: [PLUGIN_DATA_PARAM],
   activate(app) {
-    control = control ?? createControl(app);
-    const added = app.addMapControl(control, position);
-    if (!added) {
-      control = null;
-      return false;
-    }
-    // Demonstrate the native plugin UI surfaces. Remove any you do not need
-    // (and their imports) if your plugin only needs a map control. The right
-    // panel opens immediately; the floating panel is registered and opened on
-    // demand from the toolbar menu.
-    disposeRightPanel = registerTemplateRightPanel(app);
-    disposeFloatingPanel = registerTemplateFloatingPanel(app);
-    disposeToolbarMenu = registerTemplateToolbarMenu(app);
-  },
-  // Deep link: GeoLibre auto-activates this plugin when a URL carries a
-  // parameter it owns and dispatches the parsed parameters here, e.g.
-  // ?plugin-data=https://example.com/dataset.zip
-  handleUrlParameters(_app, params) {
-    if (control) return maybeHandleDeepLink(control, params);
+    if (!app.registerRightPanel) return false;
+    const current = (panel = panel ?? createPanel(app));
+    unregisterRightPanel = app.registerRightPanel({
+      id: RIGHT_PANEL_ID,
+      title: "DSWx",
+      defaultWidth: 340,
+      render(container) {
+        current.render(container);
+        return () => current.teardown();
+      },
+    });
+    app.openRightPanel?.(RIGHT_PANEL_ID);
+
+    disposeToolbarMenu =
+      app.registerToolbarMenu?.({
+        id: TOOLBAR_MENU_ID,
+        label: "DSWx",
+        items: [
+          {
+            id: "open",
+            label: "Open DSWx search",
+            onSelect: () => app.openRightPanel?.(RIGHT_PANEL_ID),
+          },
+        ],
+      }) ?? null;
   },
   deactivate(app) {
     disposeToolbarMenu?.();
     disposeToolbarMenu = null;
-    disposeFloatingPanel?.();
-    disposeFloatingPanel = null;
-    disposeRightPanel?.();
-    disposeRightPanel = null;
-    if (!control) return;
-    pendingState = control.getState();
-    app.removeMapControl(control);
-    control = null;
-  },
-  getMapControlPosition() {
-    return position;
-  },
-  setMapControlPosition(app, nextPosition) {
-    position = nextPosition;
-    if (!control) return;
-
-    app.removeMapControl(control);
-    const added = app.addMapControl(control, position);
-    if (!added) {
-      pendingState = control.getState();
-      control = null;
-      return false;
-    }
+    if (panel) pendingState = panel.getState();
+    app.closeRightPanel?.(RIGHT_PANEL_ID);
+    unregisterRightPanel?.();
+    unregisterRightPanel = null;
+    panel = null;
   },
   getProjectState() {
-    return control?.getState() ?? pendingState ?? undefined;
+    return panel?.getState() ?? pendingState ?? undefined;
   },
   applyProjectState(_app, state) {
-    if (!isPluginState(state)) return false;
+    if (!isDswxState(state)) return false;
     pendingState = state;
-    control?.setState(state);
+    panel?.setState(state);
   },
 };
 
