@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { forbidBundledHostLibraries } from "./scripts/forbid-bundled-host-libraries.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -61,5 +62,7 @@ export default defineConfig({
     sourcemap: false,
     minify: false,
   },
-  // plugins: [bundlePluginAssets()], // enable with the recipe above
+  // Fail the build if deck.gl, luma.gl, maplibre-gl-raster or maplibre-gl-lidar
+  // would be bundled: use the host's copy instead (see the README).
+  plugins: [forbidBundledHostLibraries() /*, bundlePluginAssets() */],
 });

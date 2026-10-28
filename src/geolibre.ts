@@ -11,8 +11,9 @@ import { registerTemplateToolbarMenu } from "./lib/geolibre/toolbar-menu";
 import { PLUGIN_DATA_PARAM, maybeHandleDeepLink } from "./lib/utils/deep-link";
 import "./lib/styles/plugin-control.css";
 
-// The host API is generic over the control type; bind it to this plugin's
-// concrete control so the wired callbacks are fully typed.
+// The host API is generic over the control type (and, optionally, the map type
+// `app.getMap()` returns); bind it to this plugin's concrete control so the
+// wired callbacks are fully typed.
 type AppAPI = GeoLibreAppAPI<PluginControl>;
 
 let control: PluginControl | null = null;
