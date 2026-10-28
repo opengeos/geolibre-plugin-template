@@ -59,6 +59,7 @@ export async function searchGranules(
   const query = new URLSearchParams();
   query.set("short_name", params.shortName);
   query.set("page_size", String(params.count ?? 50));
+  query.set("sort_key", "-start_date");
   if (params.bbox) {
     // CMR bounding_box is "W,S,E,N".
     query.set("bounding_box", params.bbox.join(","));
@@ -186,7 +187,18 @@ function parseGranule(item: UmmGranuleItem): DswxGranule {
     bbox,
     geometry,
     dataLinks,
+    ...parseGranuleUr(id),
   };
+}
+
+// HLS and S1 share one pattern, e.g.
+// OPERA_L3_DSWx-HLS_T10SEG_20240617T184514Z_20240619T173448Z_L8_30_v1.0
+const GRANULE_UR = /_(T\d{2}[A-Z]{3})_\d{8}T\d{6}Z_\d{8}T\d{6}Z_([A-Z0-9]+)_\d+_v/;
+
+/** Extract the MGRS tile id and sensor from a DSWx GranuleUR, if recognisable. */
+export function parseGranuleUr(id: string): { tileId?: string; sensor?: string } {
+  const m = GRANULE_UR.exec(id);
+  return m ? { tileId: m[1], sensor: m[2] } : {};
 }
 
 /** Bounds of a coordinate ring as `[w, s, e, n]`. */

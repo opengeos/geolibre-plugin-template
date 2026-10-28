@@ -12,7 +12,8 @@ import {
   fetchTileJson,
   tileSizeFromTemplate,
 } from "../dswx/titiler";
-import type { BBox, DswxGranule } from "../dswx/types";
+import { groupObservations, observationTemporal } from "../dswx/observations";
+import type { BBox, DswxGranule, Observation } from "../dswx/types";
 
 /** Footprint overlay layer id (registered with the host). */
 const FOOTPRINTS_LAYER = "dswx-granule-footprints";
@@ -86,7 +87,7 @@ export class DswxPanel {
   private _options: DswxPanelOptions;
   private _state: DswxState = defaultState();
   private _root?: HTMLElement;
-  private _granules: DswxGranule[] = [];
+  private _observations: Observation[] = [];
   private _selected = new Set<string>();
   private _lastAnchor: number | null = null;
   private _displayed = new Set<string>();
@@ -133,7 +134,7 @@ export class DswxPanel {
       <div class="dswx-status" data-k="status" role="status"></div>
       <div class="dswx-results" data-k="results" hidden>
         <div class="dswx-table-wrap"><table><thead><tr>
-          <th>Granule</th><th>Date</th></tr></thead>
+          <th>Observation (UTC)</th><th>Sensor</th><th>Tiles</th></tr></thead>
           <tbody data-k="rows"></tbody></table></div>
         <div class="dswx-field"><label>Layer</label>
           <select data-k="band"></select></div>
@@ -258,17 +259,17 @@ export class DswxPanel {
         end: end || undefined,
         count: 100,
       });
-      this._granules = result.granules;
+      this._observations = groupObservations(result.granules);
       this._selected.clear();
       this._lastAnchor = null;
       this._clearHighlight();
       this._renderFootprints(result.featureCollection);
       this._renderRows();
-      this._el.results.hidden = result.granules.length === 0;
+      this._el.results.hidden = this._observations.length === 0;
       this._setStatus(
-        result.granules.length
-          ? `Found ${result.granules.length} granule(s).`
-          : "No granules found for that area and date range.",
+        this._observations.length
+          ? `Found ${this._observations.length} observation(s) from ${result.granules.length} granule(s).`
+          : "No observations found for that area and date range.",
       );
       if (result.bounds) this._options.fitBounds?.(result.bounds);
     } catch (err) {
@@ -283,15 +284,18 @@ export class DswxPanel {
   private _renderRows(): void {
     const tbody = this._el.rows;
     tbody.replaceChildren();
-    this._granules.forEach((g, index) => {
+    this._observations.forEach((o, index) => {
       const tr = document.createElement("tr");
-      tr.dataset.id = g.id;
-      const name = document.createElement("td");
-      name.textContent = g.id.replace(/^OPERA_L3_/, "");
-      name.title = g.id;
-      const date = document.createElement("td");
-      date.textContent = (g.beginDate ?? "").slice(0, 10);
-      tr.append(name, date);
+      tr.dataset.id = o.id;
+      const when = document.createElement("td");
+      when.textContent = o.start.slice(0, 16).replace("T", " ");
+      when.title = o.granules.map((g) => g.id).join("\n");
+      const sensor = document.createElement("td");
+      sensor.textContent = o.sensor;
+      const tiles = document.createElement("td");
+      tiles.textContent = String(o.granules.length);
+      tiles.title = o.tileIds.join(", ");
+      tr.append(when, sensor, tiles);
       tr.addEventListener("click", (e) => this._onRowClick(index, e));
       tbody.appendChild(tr);
     });
@@ -300,11 +304,11 @@ export class DswxPanel {
 
   /** Ctrl/Cmd toggles a row, Shift selects a range, a plain click selects one. */
   private _onRowClick(index: number, e: MouseEvent): void {
-    const id = this._granules[index].id;
+    const id = this._observations[index].id;
     if (e.shiftKey && this._lastAnchor !== null) {
       const [a, b] = [this._lastAnchor, index].sort((x, y) => x - y);
       this._selected.clear();
-      for (let i = a; i <= b; i++) this._selected.add(this._granules[i].id);
+      for (let i = a; i <= b; i++) this._selected.add(this._observations[i].id);
     } else if (e.metaKey || e.ctrlKey) {
       if (!this._selected.delete(id)) this._selected.add(id);
       this._lastAnchor = index;
@@ -316,18 +320,19 @@ export class DswxPanel {
     this._syncSelection();
   }
 
-  private _selectedGranules(): DswxGranule[] {
-    return this._granules.filter((g) => this._selected.has(g.id));
+  private _selectedObservations(): Observation[] {
+    return this._observations.filter((o) => this._selected.has(o.id));
   }
 
   private _syncSelection(): void {
     this._el.rows.querySelectorAll<HTMLElement>("tr").forEach((tr) => {
       tr.classList.toggle("selected", this._selected.has(tr.dataset.id!));
     });
-    const selected = this._selectedGranules();
+    const selected = this._selectedObservations();
+    const granules = selected.flatMap((o) => o.granules);
     this._el.display.toggleAttribute("disabled", selected.length === 0);
-    this._renderBands(selected);
-    this._drawHighlight(selected);
+    this._renderBands(granules);
+    this._drawHighlight(granules);
   }
 
   /** Band list: the layers present in every selected granule. */
@@ -435,9 +440,9 @@ export class DswxPanel {
   private async _onDisplay(): Promise<void> {
     this._readForm();
     const product = getProduct(this._state.product);
-    const selected = this._selectedGranules();
+    const selected = this._selectedObservations();
     if (!product || selected.length === 0) {
-      this._setStatus("Select a granule first.");
+      this._setStatus("Select an observation first.");
       return;
     }
     const band = this._state.band || product.render.bands?.[0];
@@ -449,20 +454,20 @@ export class DswxPanel {
       : colormapForBand(product.shortName, band);
 
     this._el.display.setAttribute("disabled", "");
-    this._setStatus(`Requesting ${selected.length} granule(s) from titiler-cmr…`);
+    this._setStatus(`Requesting ${selected.length} observation(s) from titiler-cmr…`);
     try {
       const conceptId =
         selected[0].conceptId ?? (await resolveConceptId(product.shortName));
       let ok = 0;
-      // One granule_ur-pinned layer per granule so exactly the chosen granules
-      // show (titiler-cmr has no granule-list parameter).
+      // One layer per observation: titiler-cmr mosaics every granule (MGRS
+      // tile) inside the observation's time window into a single tileset.
       await Promise.all(
-        selected.map(async (granule) => {
+        selected.map(async (obs) => {
           const url = buildTileJsonUrl({
             endpoint: this._state.endpoint || DEFAULT_TITILER_CMR_ENDPOINT,
             conceptId,
             backend: product.render.backend,
-            granuleUr: granule.id,
+            datetime: observationTemporal([obs]),
             bands: band ? [band] : product.render.bands,
             bandsRegex: product.render.bandsRegex,
             rescale,
@@ -472,10 +477,10 @@ export class DswxPanel {
           try {
             const tilejson = await fetchTileJson(url);
             const tileUrl = tilejson.tiles[0];
-            const id = `dswx-cog-${slug(granule.id)}-${slug(band ?? "band")}`;
+            const id = `dswx-obs-${slug(obs.id)}-${slug(band ?? "band")}`;
             this._options.registerLayer?.({
               id,
-              name: `${product.shortTitle} ${band ?? ""} — ${granule.id}`.trim(),
+              name: `${product.shortTitle} ${band ?? ""} — ${obs.start.slice(0, 16).replace("T", " ")} ${obs.sensor}`.trim(),
               type: "raster",
               source: {
                 type: "raster",
@@ -490,7 +495,11 @@ export class DswxPanel {
               },
               nativeLayerIds: [],
               opacity: 1,
-              metadata: { sourceKind: "dswx-titiler-cmr", granuleId: granule.id },
+              metadata: {
+                sourceKind: "dswx-titiler-cmr",
+                observationId: obs.id,
+                granuleIds: obs.granules.map((g) => g.id),
+              },
             });
             this._displayed.add(id);
             ok++;
@@ -499,7 +508,7 @@ export class DswxPanel {
           }
         }),
       );
-      const boxes = selected.map((g) => g.bbox).filter((b): b is BBox => !!b);
+      const boxes = selected.map((o) => o.bbox).filter((b): b is BBox => !!b);
       if (boxes.length) {
         this._options.fitBounds?.([
           Math.min(...boxes.map((b) => b[0])),
@@ -510,8 +519,8 @@ export class DswxPanel {
       }
       this._setStatus(
         ok === selected.length
-          ? `Displayed ${ok} granule(s).`
-          : `Displayed ${ok}/${selected.length} granule(s).`,
+          ? `Displayed ${ok} observation(s).`
+          : `Displayed ${ok}/${selected.length} observation(s); the rest failed to load.`,
       );
     } catch (err) {
       this._setStatus(
@@ -529,7 +538,7 @@ export class DswxPanel {
   }
 
   private _clearResults(): void {
-    this._granules = [];
+    this._observations = [];
     this._selected.clear();
     this._removeFootprints();
     if (this._el.results) this._el.results.hidden = true;

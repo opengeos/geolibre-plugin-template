@@ -71,6 +71,30 @@ export interface DswxGranule {
   geometry: unknown;
   /** Downloadable data links (band COG / HDF5 URLs). */
   dataLinks: string[];
+  /** MGRS tile id parsed from the GranuleUR, e.g. "T10SEG". */
+  tileId?: string;
+  /** Sensor token parsed from the GranuleUR, e.g. "S2A", "L8", "S1A". */
+  sensor?: string;
+}
+
+/**
+ * One satellite observation: DSWx granules (one per MGRS tile) whose sensing
+ * times are within a short gap of each other, i.e. the same pass.
+ */
+export interface Observation {
+  /** Stable id: the earliest member's begin time plus sensor. */
+  id: string;
+  /** Earliest member begin date (ISO). */
+  start: string;
+  /** Latest member end date (ISO). */
+  end: string;
+  /** Sensor token when all members agree, else "mixed". */
+  sensor: string;
+  conceptId?: string;
+  granules: DswxGranule[];
+  tileIds: string[];
+  /** Union bounds `[w, s, e, n]` of member footprints. */
+  bbox?: BBox;
 }
 
 /** A selectable band/layer derived from a granule's data links. */
