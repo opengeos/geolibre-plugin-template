@@ -79,7 +79,7 @@ export interface DswxGranule {
 
 /**
  * One satellite observation: DSWx granules (one per MGRS tile) whose sensing
- * times are within a short gap of each other, i.e. the same pass.
+ * times are within a short window of the first, i.e. the same pass.
  */
 export interface Observation {
   /** Stable id: the earliest member's begin time plus sensor. */
@@ -88,7 +88,7 @@ export interface Observation {
   start: string;
   /** Latest member end date (ISO). */
   end: string;
-  /** Sensor token when all members agree, else "mixed". */
+  /** Sensor tokens of the members, sorted and joined with "/" (e.g. "L8/S2C"). */
   sensor: string;
   conceptId?: string;
   granules: DswxGranule[];

@@ -43,18 +43,28 @@ describe("groupObservations", () => {
     expect(obs[1].start).toBe("2024-06-15T19:13:56Z");
   });
 
-  it("separates sensors acquired close together", () => {
+  it("mixes sensors acquired within the window", () => {
     const obs = groupObservations([
       g("T10SEG", "2024-06-17T18:45:14Z", "L8"),
       g("T10SEH", "2024-06-17T19:03:57Z", "S2B"),
     ]);
-    expect(obs.map((o) => o.sensor).sort()).toEqual(["L8", "S2B"]);
+    expect(obs).toHaveLength(1);
+    expect(obs[0].sensor).toBe("L8/S2B");
   });
 
-  it("splits when the gap exceeds the tolerance", () => {
+  it("splits when the span exceeds the window", () => {
     const list = [g("A", "2024-06-17T19:00:00Z"), g("B", "2024-06-17T19:30:00Z")];
     expect(groupObservations(list, 10)).toHaveLength(2);
     expect(groupObservations(list, 60)).toHaveLength(1);
+  });
+
+  it("does not chain granules beyond the total window", () => {
+    const list = [
+      g("A", "2024-06-17T00:00:00Z"),
+      g("B", "2024-06-17T04:00:00Z"),
+      g("C", "2024-06-17T08:00:00Z"),
+    ];
+    expect(groupObservations(list, 360)).toHaveLength(2);
   });
 
   it("drops granules without a begin date", () => {

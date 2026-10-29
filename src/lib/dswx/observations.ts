@@ -1,12 +1,14 @@
 /**
  * Group DSWx granules into observations: one satellite pass is split into one
  * granule per MGRS tile, with sensing times a few seconds to a minute apart.
+ * Sensors are mixed (e.g. L8 and S2C within a few hours form one observation);
+ * callers pass granules from a single product, so grouping stays per product.
  */
 
 import type { BBox, DswxGranule, Observation } from "./types";
 
-/** Max gap between consecutive granule begin times within one observation. */
-export const DEFAULT_OBSERVATION_GAP_MINUTES = 10;
+/** Max span between the first and last granule begin times of one observation. */
+export const DEFAULT_OBSERVATION_WINDOW_MINUTES = 6 * 60;
 
 function ms(iso?: string): number {
   const t = iso ? Date.parse(iso) : NaN;
@@ -28,7 +30,7 @@ function unionBounds(granules: DswxGranule[]): BBox | undefined {
 }
 
 function build(members: DswxGranule[]): Observation {
-  const sensors = new Set(members.map((g) => g.sensor ?? ""));
+  const sensors = new Set(members.map((g) => g.sensor || "unknown"));
   const start = members.reduce(
     (m, g) => (ms(g.beginDate) < ms(m) ? g.beginDate! : m),
     members[0].beginDate!,
@@ -37,7 +39,7 @@ function build(members: DswxGranule[]): Observation {
     const e = g.endDate ?? g.beginDate!;
     return ms(e) > ms(m) ? e : m;
   }, members[0].endDate ?? members[0].beginDate!);
-  const sensor = sensors.size === 1 ? [...sensors][0] || "unknown" : "mixed";
+  const sensor = [...sensors].sort().join("/");
   return {
     id: `${start}|${sensor}`,
     start,
@@ -51,39 +53,31 @@ function build(members: DswxGranule[]): Observation {
 }
 
 /**
- * Cluster granules into observations, newest first. Granules are split by
- * sensor first (an L8 and an S2 acquisition minutes apart are different
- * observations), then chained by begin time with a maximum gap. Granules
- * without a usable begin date are dropped.
+ * Cluster granules into observations, newest first: granules are chained by
+ * begin time into windows of at most `windowMinutes` measured from the
+ * first granule of each group (no chaining), regardless of sensor. Granules without a
+ * usable begin date are dropped.
  */
 export function groupObservations(
   granules: DswxGranule[],
-  gapMinutes = DEFAULT_OBSERVATION_GAP_MINUTES,
+  windowMinutes = DEFAULT_OBSERVATION_WINDOW_MINUTES,
 ): Observation[] {
-  const gap = gapMinutes * 60_000;
-  const bySensor = new Map<string, DswxGranule[]>();
-  for (const g of granules) {
-    if (Number.isNaN(ms(g.beginDate))) continue;
-    const key = g.sensor ?? "";
-    const list = bySensor.get(key);
-    if (list) list.push(g);
-    else bySensor.set(key, [g]);
-  }
+  const window = windowMinutes * 60_000;
+  const list = granules
+    .filter((g) => !Number.isNaN(ms(g.beginDate)))
+    .sort((a, b) => ms(a.beginDate) - ms(b.beginDate));
 
   const observations: Observation[] = [];
-  for (const list of bySensor.values()) {
-    list.sort((a, b) => ms(a.beginDate) - ms(b.beginDate));
-    let current: DswxGranule[] = [];
-    for (const g of list) {
-      const prev = current[current.length - 1];
-      if (prev && ms(g.beginDate) - ms(prev.beginDate) > gap) {
-        observations.push(build(current));
-        current = [];
-      }
-      current.push(g);
+  let current: DswxGranule[] = [];
+  for (const g of list) {
+    const first = current[0];
+    if (first && ms(g.beginDate) - ms(first.beginDate) > window) {
+      observations.push(build(current));
+      current = [];
     }
-    if (current.length) observations.push(build(current));
+    current.push(g);
   }
+  if (current.length) observations.push(build(current));
   return observations.sort((a, b) => ms(b.start) - ms(a.start));
 }
 
