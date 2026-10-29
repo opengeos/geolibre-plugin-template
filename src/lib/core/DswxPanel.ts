@@ -5,7 +5,13 @@ import {
   resolveConceptId,
   searchGranules,
 } from "../dswx/cmr";
-import { colormapForBand, isDswxWaterBand } from "../dswx/colormaps";
+import {
+  colormapForBand,
+  DSWX_HLS_PRIORITY_COLORMAP,
+  DSWX_HLS_PRIORITY_EXPRESSION,
+  isDswxWaterBand,
+  supportsPriorityComposite,
+} from "../dswx/colormaps";
 import { bandRenderDefaults, DSWX_PRODUCTS, getProduct } from "../dswx/products";
 import {
   buildTileJsonUrl,
@@ -501,6 +507,14 @@ export class DswxPanel {
       ? undefined
       : colormapForBand(product.shortName, band);
 
+    // Water classification: remap classes so overlaps resolve by priority
+    // (water first) with a `lowest` mosaic. Pixel values on the layer are then
+    // priority codes, so the colormap is keyed to them.
+    const priority =
+      !this._state.colormapName &&
+      !this._state.rescale &&
+      supportsPriorityComposite(product.shortName, band);
+
     this._el.display.setAttribute("disabled", "");
     this._setStatus(`Requesting ${selected.length} observation(s) from titiler-cmr…`);
     try {
@@ -520,7 +534,15 @@ export class DswxPanel {
             bandsRegex: product.render.bandsRegex,
             rescale,
             colormapName,
-            colormap,
+            colormap: priority
+              ? JSON.stringify(DSWX_HLS_PRIORITY_COLORMAP)
+              : colormap,
+            ...(priority
+              ? {
+                  expression: DSWX_HLS_PRIORITY_EXPRESSION,
+                  pixelSelection: "lowest",
+                }
+              : {}),
           });
           try {
             const tilejson = await fetchTileJson(url);

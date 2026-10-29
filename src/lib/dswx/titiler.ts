@@ -84,6 +84,13 @@ export interface TileJsonParams {
    * (sent with `asset_as_band=true`). Overrides plain band rendering.
    */
   expression?: string;
+  /**
+   * Mosaic method where granules overlap (`pixel_selection`), e.g. "lowest".
+   * Sends `bands=` instead of `assets=` (the only form that works with an
+   * expression) and reads every granule in the window (`exitwhenfull` and
+   * `skipcovered` off); without that the server stops after the first granule.
+   */
+  pixelSelection?: string;
 }
 
 export interface TileJson {
@@ -277,14 +284,23 @@ function applyExpression(query: URLSearchParams, expression?: string): void {
  * against the hosted staging endpoint.
  */
 export function buildTileJsonUrl(params: TileJsonParams): string {
+  const mosaic = !!params.pixelSelection;
   return buildCmrTileJsonUrl({
     endpoint: params.endpoint,
     conceptId: params.conceptId,
     backend: params.backend,
     temporal: params.datetime,
     granuleUr: params.granuleUr,
-    assets: params.bands,
-    assetsRegex: params.bandsRegex,
+    assets: mosaic ? undefined : params.bands,
+    assetsRegex: mosaic ? undefined : params.bandsRegex,
+    extraParams: mosaic
+      ? {
+          bands: params.bands,
+          pixel_selection: params.pixelSelection,
+          exitwhenfull: false,
+          skipcovered: false,
+        }
+      : undefined,
     rescale: params.colormap ? undefined : params.rescale,
     colormapName: params.colormap ? undefined : params.colormapName,
     colormap: params.colormap,
@@ -424,6 +440,15 @@ export interface StatisticsQueryParams {
   histogramBins?: number;
   /** rio-tiler band-math expression (bands as `b1`, `b2`, ...); see TileJsonParams. */
   expression?: string;
+  /**
+   * Mosaic method used where granules overlap (`pixel_selection`), e.g.
+   * "lowest". Only takes effect with `exitWhenFull`/`skipCovered` off.
+   */
+  pixelSelection?: string;
+  /** Stop reading granules once the AOI is covered (server default: true). */
+  exitWhenFull?: boolean;
+  /** Skip granules that add no new coverage (server default: true). */
+  skipCovered?: boolean;
 }
 
 /** Per-band statistics returned by titiler-cmr `/statistics`. */
@@ -437,6 +462,8 @@ export interface BandStatistics {
   count: number;
   /** Unmasked pixel count within the AOI. */
   validPixels?: number;
+  /** Masked (nodata) pixel count within the AOI. */
+  maskedPixels?: number;
   /** Percentage of AOI pixels that are valid (not nodata/masked). */
   validPercent?: number;
   /**
@@ -465,18 +492,35 @@ export interface StatisticsResult {
  * `categorical`. Verified live against the staging endpoint.
  */
 export function buildStatisticsUrl(params: StatisticsQueryParams): string {
-  return buildCmrStatisticsUrl({
-    endpoint: params.endpoint,
-    conceptId: params.conceptId,
-    backend: params.backend,
-    granuleUr: params.granuleUr,
-    temporal: params.datetime,
-    assets: params.bands,
-    assetsRegex: params.bandsRegex,
-    categorical: params.categorical,
-    histogramBins: params.histogramBins,
-    expression: params.expression,
-  });
+  const url = new URL(
+    buildCmrStatisticsUrl({
+      endpoint: params.endpoint,
+      conceptId: params.conceptId,
+      backend: params.backend,
+      granuleUr: params.granuleUr,
+      temporal: params.datetime,
+      categorical: params.categorical,
+      histogramBins: params.histogramBins,
+      expression: params.expression,
+    }),
+  );
+  // Verified live: `/statistics` rejects `assets`/`assets_regex` names (it
+  // expects band indexes) but accepts the legacy `bands` parameter by name.
+  for (const band of params.bands ?? []) url.searchParams.append("bands", band);
+  if (params.expression?.trim()) {
+    // Expressions evaluate over `b1`; `asset_as_band` is already set above.
+    url.searchParams.set("asset_as_band", "true");
+  }
+  if (params.pixelSelection) {
+    url.searchParams.set("pixel_selection", params.pixelSelection);
+  }
+  if (params.exitWhenFull !== undefined) {
+    url.searchParams.set("exitwhenfull", String(params.exitWhenFull));
+  }
+  if (params.skipCovered !== undefined) {
+    url.searchParams.set("skipcovered", String(params.skipCovered));
+  }
+  return url.toString();
 }
 
 /** Coerce an unknown JSON value to a finite number, or NaN. */
@@ -510,6 +554,8 @@ export async function fetchStatistics(
   if (!res.ok) {
     throw new Error(`titiler-cmr statistics request failed (${res.status})`);
   }
+  // 204: no granule intersects the query window/AOI.
+  if (res.status === 204) return { bands: {} };
   const json = (await res.json()) as {
     properties?: { statistics?: Record<string, Record<string, unknown>> };
   };
@@ -524,6 +570,7 @@ export async function fetchStatistics(
       median: toOptNum(s.median),
       count: toNum(s.count),
       validPixels: toOptNum(s.valid_pixels),
+      maskedPixels: toOptNum(s.masked_pixels),
       validPercent: toOptNum(s.valid_percent),
       histogram: Array.isArray(s.histogram)
         ? (s.histogram as [number[], number[]])

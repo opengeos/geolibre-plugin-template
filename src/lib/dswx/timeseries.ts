@@ -3,10 +3,7 @@
  * per observation, converted from class pixel counts to areas.
  */
 
-import {
-  DSWX_OPEN_WATER_CLASS,
-  DSWX_PARTIAL_WATER_CLASS,
-} from "./colormaps";
+import { DSWX_HLS_PRIORITY_EXPRESSION } from "./colormaps";
 import { observationTemporal } from "./observations";
 import { DSWX_PIXEL_SIZE_METERS } from "./products";
 import {
@@ -16,8 +13,14 @@ import {
 } from "./titiler";
 import type { Observation, TitilerBackend } from "./types";
 
-/** Classes that mean "no usable observation" (cloud/shadow, snow/ice, fill). */
-const OBSCURED_CLASSES = [252, 253, 255];
+/** Priority remap applied before the `lowest` mosaic; see colormaps.ts. */
+export const PRIORITY_EXPRESSION = DSWX_HLS_PRIORITY_EXPRESSION;
+
+/** Remapped class codes produced by {@link PRIORITY_EXPRESSION}. */
+export const PRIORITY_OPEN_WATER = 1;
+export const PRIORITY_PARTIAL_WATER = 2;
+/** Snow/ice (4), cloud/shadow (5) and any other class (6, e.g. ocean masked). */
+const PRIORITY_MASKED = [4, 5, 6];
 
 export interface WaterAreaPoint {
   observationId: string;
@@ -26,43 +29,62 @@ export interface WaterAreaPoint {
   sensor: string;
   openKm2: number;
   partialKm2: number;
-  /** Fraction (0-1) of AOI pixels that are cloud, snow/ice or fill. */
-  obscuredFraction: number;
-  /** Total AOI pixels counted; 0 means the observation misses the AOI. */
+  /** Fraction (0-1) of AOI pixels that are cloud, snow/ice or other masks. */
+  maskedFraction: number;
+  /** Fraction (0-1) of AOI pixels with no data (outside coverage, fill). */
+  noDataFraction: number;
+  /** Classified AOI pixels counted; 0 means no usable data in the AOI. */
   pixels: number;
+  /** All AOI pixels (classified plus no data). */
+  totalPixels: number;
   error?: string;
 }
 
 const KM2_PER_PIXEL = (DSWX_PIXEL_SIZE_METERS * DSWX_PIXEL_SIZE_METERS) / 1e6;
 
-/** Convert a categorical `/statistics` result for one band into areas. */
+/**
+ * Convert a categorical `/statistics` result, computed over the remapped
+ * priority classes, into areas and coverage fractions.
+ */
 export function waterAreaFromStats(
   obs: Pick<Observation, "id" | "start" | "sensor">,
   stats: BandStatistics | undefined,
 ): WaterAreaPoint {
   const base = { observationId: obs.id, time: obs.start, sensor: obs.sensor };
+  const empty = {
+    ...base,
+    openKm2: 0,
+    partialKm2: 0,
+    maskedFraction: 0,
+    noDataFraction: 0,
+    pixels: 0,
+    totalPixels: 0,
+  };
   const hist = stats?.histogram;
-  if (!hist) {
-    return { ...base, openKm2: 0, partialKm2: 0, obscuredFraction: 0, pixels: 0 };
-  }
+  if (!stats || !hist) return empty;
   const [counts, classes] = hist;
   let open = 0;
   let partial = 0;
-  let obscured = 0;
-  let total = 0;
+  let masked = 0;
+  let valid = 0;
   classes.forEach((cls, i) => {
     const n = counts[i] ?? 0;
-    total += n;
-    if (cls === DSWX_OPEN_WATER_CLASS) open += n;
-    else if (cls === DSWX_PARTIAL_WATER_CLASS) partial += n;
-    else if (OBSCURED_CLASSES.includes(cls)) obscured += n;
+    valid += n;
+    if (cls === PRIORITY_OPEN_WATER) open += n;
+    else if (cls === PRIORITY_PARTIAL_WATER) partial += n;
+    else if (PRIORITY_MASKED.includes(cls)) masked += n;
   });
+  const noData = stats.maskedPixels ?? 0;
+  const total = valid + noData;
+  if (!total) return empty;
   return {
     ...base,
     openKm2: open * KM2_PER_PIXEL,
     partialKm2: partial * KM2_PER_PIXEL,
-    obscuredFraction: total ? obscured / total : 0,
-    pixels: total,
+    maskedFraction: masked / total,
+    noDataFraction: noData / total,
+    pixels: valid,
+    totalPixels: total,
   };
 }
 
@@ -109,6 +131,11 @@ export async function computeWaterTimeSeries(
           bands: [opts.band],
           bandsRegex: opts.bandsRegex,
           categorical: true,
+          expression: PRIORITY_EXPRESSION,
+          // Read every granule in the window so overlaps resolve by priority.
+          pixelSelection: "lowest",
+          exitWhenFull: false,
+          skipCovered: false,
         });
         const { bands } = await fetchStatistics(url, opts.aoi);
         // A single requested band comes back keyed by its name or "b1".
@@ -137,13 +164,14 @@ export function timeSeriesToCsv(points: WaterAreaPoint[]): string {
       p.sensor,
       p.openKm2.toFixed(4),
       p.partialKm2.toFixed(4),
-      p.obscuredFraction.toFixed(4),
+      p.maskedFraction.toFixed(4),
+      p.noDataFraction.toFixed(4),
       p.pixels,
       p.error ? "error" : "ok",
     ].join(","),
   );
   return [
-    "time,sensor,open_water_km2,partial_water_km2,obscured_fraction,pixels,status",
+    "time,sensor,open_water_km2,partial_water_km2,masked_fraction,nodata_fraction,pixels,status",
     ...rows,
   ].join("\n");
 }

@@ -40,3 +40,22 @@ describe("colormapForBand", () => {
     expect(colormapForBand("OPERA_L3_DSWX-HLS_V1", "B03_CONF")).toBeUndefined();
   });
 });
+
+describe("priority composite", () => {
+  it("keys the priority colormap to remapped codes with product colors", async () => {
+    const { DSWX_HLS_PRIORITY_COLORMAP: m, DSWX_HLS_WTR_COLORMAP: o } = await import(
+      "../src/lib/dswx/colormaps"
+    );
+    expect(Object.keys(m).sort()).toEqual(["1", "2", "3", "4", "5", "6"]);
+    expect(m["1"]).toEqual(o["1"]);
+    expect(m["3"]).toEqual(o["0"]); // not water stays white
+    expect(m["5"]).toEqual(o["253"]); // cloud stays grey
+  });
+
+  it("only applies to DSWx-HLS water bands", async () => {
+    const { supportsPriorityComposite: f } = await import("../src/lib/dswx/colormaps");
+    expect(f("OPERA_L3_DSWX-HLS_V1", "B01_WTR")).toBe(true);
+    expect(f("OPERA_L3_DSWX-S1_V1", "B01_WTR")).toBe(false);
+    expect(f("OPERA_L3_DSWX-HLS_V1", "B03_CONF")).toBe(false);
+  });
+});

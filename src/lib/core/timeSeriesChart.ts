@@ -12,9 +12,10 @@ function el<K extends keyof SVGElementTagNameMap>(
 }
 
 /**
- * Render open and partial water area over time as an SVG line chart. Points
- * that errored or have no pixels are skipped. `onSelect` fires with the point
- * index (into `points`) when a marker is clicked.
+ * Render open and partial water area over time as an SVG line chart, with the
+ * masked (cloud, snow/ice) and no-data shares of the AOI on a right-hand 0-100%
+ * axis. Points that errored or have no AOI pixels are skipped. `onSelect` fires
+ * with the point index (into `points`) when a marker is clicked.
  */
 export function renderTimeSeriesChart(
   points: WaterAreaPoint[],
@@ -22,13 +23,13 @@ export function renderTimeSeriesChart(
 ): SVGSVGElement {
   const W = 320;
   const H = 180;
-  const m = { l: 44, r: 8, t: 8, b: 22 };
+  const m = { l: 44, r: 36, t: 8, b: 22 };
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img" });
   svg.setAttribute("aria-label", "Water area time series");
 
   const valid = points
     .map((p, index) => ({ p, index }))
-    .filter(({ p }) => !p.error && p.pixels > 0);
+    .filter(({ p }) => !p.error && p.totalPixels > 0);
   if (valid.length === 0) {
     const t = el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-size": 12, fill: "currentColor" });
     t.textContent = "No valid observations in the AOI";
@@ -54,6 +55,8 @@ export function renderTimeSeriesChart(
   };
   label(`${yMax.toPrecision(3)} km²`, { x: m.l - 4, y: m.t + 8, "text-anchor": "end" });
   label("0", { x: m.l - 4, y: H - m.b, "text-anchor": "end" });
+  label("100%", { x: W - m.r + 4, y: m.t + 8 });
+  label("0%", { x: W - m.r + 4, y: H - m.b });
   label(new Date(t0).toISOString().slice(0, 10), { x: m.l, y: H - 6 });
   label(new Date(t1).toISOString().slice(0, 10), { x: W - m.r, y: H - 6, "text-anchor": "end" });
 
@@ -61,6 +64,25 @@ export function renderTimeSeriesChart(
     ["Open water", (p) => p.openKm2, "#2563eb"],
     ["Open + partial water", (p) => p.openKm2 + p.partialKm2, "#93c5fd"],
   ];
+  const yPct = (f: number) => H - m.b - f * (H - m.t - m.b);
+  // Coverage lines first so the water markers stay on top and clickable.
+  const coverage: Array<[string, (p: WaterAreaPoint) => number, string]> = [
+    ["Masked (cloud, snow/ice)", (p) => p.maskedFraction, "#6b7280"],
+    ["No data", (p) => p.noDataFraction, "#d97706"],
+  ];
+  for (const [name, value, color] of coverage) {
+    const d = valid
+      .map(({ p }, i) => `${i ? "L" : "M"}${x(Date.parse(p.time)).toFixed(1)},${yPct(value(p)).toFixed(1)}`)
+      .join("");
+    svg.append(el("path", { d, fill: "none", stroke: color, "stroke-width": 1, "stroke-dasharray": "3 2" }));
+    for (const { p } of valid) {
+      const c = el("circle", { cx: x(Date.parse(p.time)), cy: yPct(value(p)), r: 2, fill: color });
+      const title = el("title", {});
+      title.textContent = `${name}: ${(value(p) * 100).toFixed(0)}% of AOI`;
+      c.append(title);
+      svg.append(c);
+    }
+  }
   for (const [name, value, color] of series) {
     const d = valid
       .map(({ p }, i) => `${i ? "L" : "M"}${x(Date.parse(p.time)).toFixed(1)},${y(value(p)).toFixed(1)}`)
@@ -72,12 +94,12 @@ export function renderTimeSeriesChart(
         cy: y(value(p)),
         r: 3.5,
         fill: color,
-        // Hazy observations are less trustworthy: fade by obscured share.
-        "fill-opacity": Math.max(0.25, 1 - p.obscuredFraction),
+        // Hazy observations are less trustworthy: fade by unusable share.
+        "fill-opacity": Math.max(0.25, 1 - p.maskedFraction - p.noDataFraction),
         style: "cursor:pointer",
       });
       const title = el("title", {});
-      title.textContent = `${name}: ${value(p).toFixed(3)} km² — ${p.time.slice(0, 16).replace("T", " ")} ${p.sensor}, ${(p.obscuredFraction * 100).toFixed(0)}% obscured`;
+      title.textContent = `${name}: ${value(p).toFixed(3)} km² — ${p.time.slice(0, 16).replace("T", " ")} ${p.sensor}, ${(p.maskedFraction * 100).toFixed(0)}% masked, ${(p.noDataFraction * 100).toFixed(0)}% no data`;
       c.append(title);
       c.addEventListener("click", () => onSelect?.(index));
       svg.append(c);
