@@ -8,7 +8,7 @@
  * hands the returned XYZ tile template to GeoLibre.
  *
  * The runtime endpoint is configurable by the host, build environment, or the
- * DSWx panel. A public staging titiler-cmr URL is retained only as a fallback
+ * `localStorage` key below. A public staging titiler-cmr URL is retained only as a fallback
  * for development and first-run demos.
  */
 
@@ -19,11 +19,15 @@ export const FALLBACK_TITILER_CMR_ENDPOINT =
 
 const ENDPOINT_GLOBAL = "GEOLIBRE_DSWX_TITILER_CMR_ENDPOINT";
 
+/** Browser `localStorage` key for a user-set endpoint override. */
+export const ENDPOINT_STORAGE_KEY = "geolibre-dswx:titiler-cmr-endpoint";
+
 export const DEFAULT_TITILER_CMR_ENDPOINT = resolveDefaultTitilerCmrEndpoint();
 
 export function resolveDefaultTitilerCmrEndpoint(override?: string): string {
   return (
     cleanEndpoint(override) ||
+    cleanEndpoint(readStoredEndpoint()) ||
     cleanEndpoint(readGlobalEndpoint()) ||
     cleanEndpoint(readBuildEndpoint()) ||
     FALLBACK_TITILER_CMR_ENDPOINT
@@ -33,6 +37,14 @@ export function resolveDefaultTitilerCmrEndpoint(override?: string): string {
 function cleanEndpoint(value?: string): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed.replace(/\/+$/, "") : undefined;
+}
+
+function readStoredEndpoint(): string | undefined {
+  try {
+    return globalThis.localStorage?.getItem(ENDPOINT_STORAGE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readGlobalEndpoint(): string | undefined {

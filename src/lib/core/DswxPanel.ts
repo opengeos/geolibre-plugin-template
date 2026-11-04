@@ -41,9 +41,6 @@ export interface DswxState {
   start: string;
   end: string;
   band: string;
-  rescale: string;
-  colormapName: string;
-  endpoint: string;
 }
 
 export interface DswxPanelOptions {
@@ -72,9 +69,6 @@ function defaultState(): DswxState {
     start: isoDay(start),
     end: isoDay(end),
     band: "",
-    rescale: "",
-    colormapName: "",
-    endpoint: "",
   };
 }
 
@@ -161,14 +155,6 @@ export class DswxPanel {
           <tbody data-k="rows"></tbody></table></div>
         <div class="dswx-field"><label>Layer</label>
           <select data-k="band"></select></div>
-        <details><summary>Rendering</summary>
-          <div class="dswx-field"><label>Rescale (min,max)</label>
-            <input data-k="rescale" placeholder="auto" /></div>
-          <div class="dswx-field"><label>Colormap</label>
-            <input data-k="colormapName" placeholder="default" /></div>
-          <div class="dswx-field"><label>titiler-cmr endpoint</label>
-            <input data-k="endpoint" placeholder="${DEFAULT_TITILER_CMR_ENDPOINT}" /></div>
-        </details>
         <div class="dswx-row">
           <button type="button" class="dswx-primary" data-k="display" disabled>Display</button>
           <button type="button" data-k="clear">Clear</button>
@@ -244,9 +230,6 @@ export class DswxPanel {
     s.start = this._input("start").value;
     s.end = this._input("end").value;
     s.band = this._input("band").value || s.band;
-    s.rescale = this._input("rescale").value.trim();
-    s.colormapName = this._input("colormapName").value.trim();
-    s.endpoint = this._input("endpoint").value.trim();
   }
 
   private _writeForm(): void {
@@ -257,9 +240,6 @@ export class DswxPanel {
       "bbox",
       "start",
       "end",
-      "rescale",
-      "colormapName",
-      "endpoint",
     ] as const) {
       this._input(key).value = s[key];
     }
@@ -415,9 +395,6 @@ export class DswxPanel {
   private _applyBandDefaults(): void {
     const band = (this._el.band as HTMLSelectElement).value;
     this._state.band = band;
-    const hints = bandRenderDefaults(band);
-    this._input("rescale").value = hints.rescale;
-    this._input("colormapName").value = hints.colormapName;
   }
 
   // --- Footprints -------------------------------------------------------
@@ -500,20 +477,18 @@ export class DswxPanel {
       return;
     }
     const band = this._state.band || product.render.bands?.[0];
-    const rescale = this._state.rescale || product.render.rescale;
-    const colormapName = this._state.colormapName || product.render.colormapName;
+    const hints = bandRenderDefaults(band);
+    const rescale = hints.rescale || product.render.rescale;
+    const colormapName = hints.colormapName || product.render.colormapName;
     // A named colormap overrides the categorical class colormap.
-    const colormap = this._state.colormapName
+    const colormap = colormapName
       ? undefined
       : colormapForBand(product.shortName, band);
 
     // Water classification: remap classes so overlaps resolve by priority
     // (water first) with a `lowest` mosaic. Pixel values on the layer are then
     // priority codes, so the colormap is keyed to them.
-    const priority =
-      !this._state.colormapName &&
-      !this._state.rescale &&
-      supportsPriorityComposite(product.shortName, band);
+    const priority = supportsPriorityComposite(product.shortName, band);
 
     this._el.display.setAttribute("disabled", "");
     this._setStatus(`Requesting ${selected.length} observation(s) from titiler-cmr…`);
@@ -526,7 +501,7 @@ export class DswxPanel {
       await Promise.all(
         selected.map(async (obs) => {
           const url = buildTileJsonUrl({
-            endpoint: this._state.endpoint || DEFAULT_TITILER_CMR_ENDPOINT,
+            endpoint: DEFAULT_TITILER_CMR_ENDPOINT,
             conceptId,
             backend: product.render.backend,
             datetime: observationTemporal([obs]),
@@ -726,7 +701,7 @@ export class DswxPanel {
         this._observations[0].conceptId ??
         (await resolveConceptId(product.shortName));
       const points = await computeWaterTimeSeries({
-        endpoint: this._state.endpoint || DEFAULT_TITILER_CMR_ENDPOINT,
+        endpoint: DEFAULT_TITILER_CMR_ENDPOINT,
         conceptId,
         backend: product.render.backend,
         band,
