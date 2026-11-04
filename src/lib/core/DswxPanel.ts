@@ -26,7 +26,7 @@ import {
   type WaterAreaPoint,
 } from "../dswx/timeseries";
 import type { BBox, DswxGranule, Observation } from "../dswx/types";
-import { drawPolygon, verticesToFeature, type LonLat } from "./aoiDraw";
+import { aoiTooLarge, drawPolygon, verticesToFeature, type LonLat } from "./aoiDraw";
 import { renderTimeSeriesChart } from "./timeSeriesChart";
 
 /** Footprint overlay layer id (registered with the host). */
@@ -640,7 +640,11 @@ export class DswxPanel {
     }
     this._aoi = verticesToFeature(vertices);
     this._drawAoiPreview(vertices);
-    this._setSeriesStatus("AOI set.");
+    this._setSeriesStatus(
+      aoiTooLarge(vertices)
+        ? "AOI set, but it is large (over ~0.4 x 0.4°). The time series may be slow or time out; draw a smaller area around the water body."
+        : "AOI set.",
+    );
     this._updateSeriesButtons();
   }
 

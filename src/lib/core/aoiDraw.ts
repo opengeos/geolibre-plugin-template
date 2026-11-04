@@ -62,3 +62,16 @@ export function drawPolygon(
     document.addEventListener("keydown", onKey);
   });
 }
+
+/** Largest AOI extent (degrees) the titiler-cmr server handles reliably. */
+export const AOI_MAX_WIDTH_DEG = 0.4;
+export const AOI_MAX_HEIGHT_DEG = 0.4;
+
+/** True when the vertices' bounding box exceeds the recommended AOI size. */
+export function aoiTooLarge(vertices: LonLat[]): boolean {
+  const xs = vertices.map((v) => v[0]);
+  const ys = vertices.map((v) => v[1]);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  return width > AOI_MAX_WIDTH_DEG || height > AOI_MAX_HEIGHT_DEG;
+}
