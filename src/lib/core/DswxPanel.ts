@@ -165,6 +165,13 @@ export class DswxPanel {
           <div class="dswx-hint">Draw an area, then chart open and partial water
             across every observation found by the search. Click to add vertices,
             double-click to finish, Esc to cancel.</div>
+          <div class="dswx-field"><label>Group observations within</label>
+            <select data-k="groupWindow">
+              <option value="360">6 hours (as listed)</option>
+              <option value="4320">3 days</option>
+              <option value="10080">7 days</option>
+              <option value="30240">21 days</option>
+            </select></div>
           <div class="dswx-row">
             <button type="button" data-k="drawAoi">Draw AOI</button>
             <button type="button" data-k="clearAoi" disabled>Clear AOI</button>
@@ -731,7 +738,13 @@ export class DswxPanel {
     this._seriesAbort?.abort();
     const abort = (this._seriesAbort = new AbortController());
     this._el.runSeries.setAttribute("disabled", "");
-    const total = this._observations.length;
+    // Regroup the searched granules; the default window reproduces the list.
+    const windowMinutes = Number(this._input("groupWindow").value);
+    const observations = groupObservations(
+      this._observations.flatMap((o) => o.granules),
+      windowMinutes,
+    );
+    const total = observations.length;
     this._setSeriesStatus(`Computing 0/${total}…`);
     try {
       const conceptId =
@@ -745,7 +758,7 @@ export class DswxPanel {
         profile: seriesProfile(product.shortName),
         bandsRegex: product.render.bandsRegex,
         aoi: this._aoi,
-        observations: this._observations,
+        observations,
         signal: abort.signal,
         onProgress: (done, n) => this._setSeriesStatus(`Computing ${done}/${n}…`),
       });
