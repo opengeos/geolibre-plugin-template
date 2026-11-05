@@ -7,7 +7,6 @@ import {
 } from "../dswx/cmr";
 import {
   colormapForBand,
-  isDswxWaterBand,
   priorityColormap,
   priorityExpression,
   supportsPriorityComposite,
@@ -43,6 +42,13 @@ export interface DswxState {
   start: string;
   end: string;
   band: string;
+}
+
+/** "6 Hour", "3 Day", ... for a grouping window in minutes. */
+function compositeLabel(minutes: number): string {
+  return minutes % 1440 === 0
+    ? `${minutes / 1440} Day`
+    : `${+(minutes / 60).toFixed(1)} Hour`;
 }
 
 export interface DswxPanelOptions {
@@ -111,6 +117,7 @@ export class DswxPanel {
   private _aoi: ReturnType<typeof verticesToFeature> | null = null;
   private _hasAoiLayer = false;
   private _series: WaterAreaPoint[] = [];
+  private _seriesTitle = "";
   private _seriesAbort?: AbortController;
 
   private _el: Record<string, HTMLElement> = {};
@@ -155,7 +162,7 @@ export class DswxPanel {
         <div class="dswx-table-wrap"><table><thead><tr>
           <th>Observation (UTC)</th><th>Sensor</th><th>Tiles</th></tr></thead>
           <tbody data-k="rows"></tbody></table></div>
-        <div class="dswx-field"><label>Layer</label>
+        <div class="dswx-field"><label>Display Layer</label>
           <select data-k="band"></select></div>
         <div class="dswx-row">
           <button type="button" class="dswx-primary" data-k="display" disabled>Display</button>
@@ -702,8 +709,9 @@ export class DswxPanel {
           ? [
               renderTimeSeriesChart(
                 points,
-                (i) => this._selectObservation(points[i].observationId),
+                (i) => this._selectPointObservations(points[i]),
                 seriesProfile(this._state.product),
+                this._seriesTitle,
               ),
             ]
           : []),
@@ -712,15 +720,23 @@ export class DswxPanel {
     this._updateSeriesButtons();
   }
 
-  /** Select (only) the given observation in the list. */
-  private _selectObservation(id: string): void {
-    if (!this._observations.some((o) => o.id === id)) return;
+  /**
+   * Select the list observations behind a chart point: every row sharing a
+   * granule with the point's group (several rows when a wider window was used).
+   */
+  private _selectPointObservations(point: WaterAreaPoint): void {
+    const granuleIds = new Set(point.granuleIds ?? []);
+    const rows = this._observations.filter(
+      (o) =>
+        o.id === point.observationId || o.granules.some((g) => granuleIds.has(g.id)),
+    );
+    if (rows.length === 0) return;
     this._selected.clear();
-    this._selected.add(id);
-    this._lastAnchor = this._observations.findIndex((o) => o.id === id);
+    for (const o of rows) this._selected.add(o.id);
+    this._lastAnchor = this._observations.indexOf(rows[0]);
     this._syncSelection();
     this._el.rows
-      .querySelector<HTMLElement>(`tr[data-id="${CSS.escape(id)}"]`)
+      .querySelector<HTMLElement>(`tr[data-id="${CSS.escape(rows[0].id)}"]`)
       ?.scrollIntoView({ block: "nearest" });
   }
 
@@ -728,9 +744,8 @@ export class DswxPanel {
     this._readForm();
     const product = getProduct(this._state.product);
     if (!product || !this._aoi || this._observations.length === 0) return;
-    const band = isDswxWaterBand(product.shortName, this._state.band)
-      ? this._state.band
-      : product.render.bands?.[0];
+    // The series is always built from the WTR layer, whatever is displayed.
+    const band = product.render.bands?.[0];
     if (!band) {
       this._setSeriesStatus("No water-classification band for this product.");
       return;
@@ -763,6 +778,7 @@ export class DswxPanel {
         onProgress: (done, n) => this._setSeriesStatus(`Computing ${done}/${n}…`),
       });
       if (abort.signal.aborted) return;
+      this._seriesTitle = `${product.shortTitle} WTR Time Series [${compositeLabel(windowMinutes)} Composite]`;
       this._setSeries(points);
       const failed = points.filter((p) => p.error).length;
       this._setSeriesStatus(

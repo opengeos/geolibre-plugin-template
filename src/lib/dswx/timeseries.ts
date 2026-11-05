@@ -65,6 +65,8 @@ export function seriesProfile(shortName: string): SeriesProfile {
 
 export interface WaterAreaPoint {
   observationId: string;
+  /** Ids of the granules grouped into this point (maps back to list rows). */
+  granuleIds?: string[];
   /** Observation start (ISO). */
   time: string;
   sensor: string;
@@ -116,12 +118,18 @@ export function polygonBboxFraction(aoi: unknown): number {
  * estimated and only the shortfall of valid pixels counts as no data.
  */
 export function waterAreaFromStats(
-  obs: Pick<Observation, "id" | "start" | "sensor">,
+  obs: Pick<Observation, "id" | "start" | "sensor"> &
+    Partial<Pick<Observation, "granules">>,
   stats: BandStatistics | undefined,
   polygonFraction = 1,
   profile: SeriesProfile = HLS_PROFILE,
 ): WaterAreaPoint {
-  const base = { observationId: obs.id, time: obs.start, sensor: obs.sensor };
+  const base = {
+    observationId: obs.id,
+    granuleIds: obs.granules?.map((g) => g.id),
+    time: obs.start,
+    sensor: obs.sensor,
+  };
   const empty = {
     ...base,
     openKm2: 0,

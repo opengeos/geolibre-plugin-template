@@ -21,10 +21,11 @@ export function renderTimeSeriesChart(
   points: WaterAreaPoint[],
   onSelect?: (index: number) => void,
   profile: SeriesProfile = HLS_PROFILE,
+  title = "",
 ): SVGSVGElement {
   const W = 320;
   const H = 180;
-  const m = { l: 52, r: 44, t: 8, b: 22 };
+  const m = { l: 52, r: 44, t: title ? 26 : 8, b: 22 };
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img" });
   svg.setAttribute("aria-label", "Water area time series");
 
@@ -54,6 +55,9 @@ export function renderTimeSeriesChart(
     t.textContent = text;
     svg.append(t);
   };
+  if (title) {
+    label(title, { x: W / 2, y: 14, "text-anchor": "middle", "font-size": 11, "font-weight": "bold" });
+  }
   label(yMax.toPrecision(3), { x: m.l - 4, y: m.t + 8, "text-anchor": "end" });
   label("0", { x: m.l - 4, y: H - m.b, "text-anchor": "end" });
   label("100%", { x: W - m.r + 4, y: m.t + 8 });
