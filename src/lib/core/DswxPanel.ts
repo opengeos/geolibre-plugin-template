@@ -23,6 +23,7 @@ import { groupObservations, observationTemporal } from "../dswx/observations";
 import {
   computeWaterTimeSeries,
   timeSeriesToCsv,
+  filterSeries,
   type WaterAreaPoint,
 } from "../dswx/timeseries";
 import type { BBox, DswxGranule, Observation } from "../dswx/types";
@@ -172,6 +173,12 @@ export class DswxPanel {
             <button type="button" data-k="exportSeries" disabled>Export CSV</button>
           </div>
           <div class="dswx-hint" data-k="seriesStatus" role="status"></div>
+          <div class="dswx-row">
+            <div class="dswx-field"><label>Max masked %</label>
+              <input data-k="maxMasked" type="number" min="0" max="100" placeholder="off" /></div>
+            <div class="dswx-field"><label>Max no-data %</label>
+              <input data-k="maxNoData" type="number" min="0" max="100" placeholder="off" /></div>
+          </div>
           <div data-k="chart"></div>
         </details>
       </div>`;
@@ -195,6 +202,9 @@ export class DswxPanel {
     this._el.band.addEventListener("change", () => this._applyBandDefaults());
     this._el.drawAoi.addEventListener("click", () => void this._onDrawAoi());
     this._el.clearAoi.addEventListener("click", () => this._clearAoi());
+    for (const k of ["maxMasked", "maxNoData"]) {
+      this._el[k].addEventListener("input", () => this._redrawSeries());
+    }
     this._el.runSeries.addEventListener("click", () => void this._onRunSeries());
     this._el.exportSeries.addEventListener("click", () => this._onExportSeries());
     if (!this._options.getMap?.()) {
@@ -656,8 +666,28 @@ export class DswxPanel {
     this._updateSeriesButtons();
   }
 
+  /** A percent input as a 0-1 fraction, or undefined when blank/invalid. */
+  private _limit(key: string): number | undefined {
+    const raw = this._input(key).value.trim();
+    const pct = Number(raw);
+    return raw === "" || !Number.isFinite(pct) ? undefined : pct / 100;
+  }
+
+  /** The series after the masked / no-data limits are applied. */
+  private _filteredSeries(): WaterAreaPoint[] {
+    return filterSeries(this._series, {
+      maxMasked: this._limit("maxMasked"),
+      maxNoData: this._limit("maxNoData"),
+    });
+  }
+
   private _setSeries(points: WaterAreaPoint[]): void {
     this._series = points;
+    this._redrawSeries();
+  }
+
+  private _redrawSeries(): void {
+    const points = this._filteredSeries();
     if (this._el.chart) {
       this._el.chart.replaceChildren(
         ...(points.length
@@ -734,7 +764,7 @@ export class DswxPanel {
 
   private _onExportSeries(): void {
     if (this._series.length === 0) return;
-    this._options.exportText?.("dswx-water-area.csv", timeSeriesToCsv(this._series));
+    this._options.exportText?.("dswx-water-area.csv", timeSeriesToCsv(this._filteredSeries()));
   }
 
   private _clearDisplayed(): void {

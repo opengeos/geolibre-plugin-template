@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterSeries,
+  polygonBboxFraction,
   timeSeriesToCsv,
   waterAreaFromStats,
 } from "@/lib/dswx/timeseries";
+import type { WaterAreaPoint } from "@/lib/dswx/timeseries";
 import type { BandStatistics } from "@/lib/dswx/titiler";
 
 const obs = { id: "o1", start: "2024-06-17T18:45:00Z", sensor: "L8" };
@@ -32,6 +35,18 @@ describe("waterAreaFromStats", () => {
     expect(p.totalPixels).toBe(10000);
     expect(p.maskedFraction).toBeCloseTo(0.1, 6);
     expect(p.noDataFraction).toBeCloseTo(0.1, 6);
+  });
+
+  it("does not count pixels outside the polygon as no data", () => {
+    // Triangle: half of its bounding box. 500 of 1000 box pixels are outside.
+    const p = waterAreaFromStats(obs, stats([500], [3], 500), 0.5);
+    expect(p.noDataFraction).toBe(0);
+    expect(p.totalPixels).toBe(500);
+  });
+
+  it("counts valid-pixel shortfall inside the polygon as no data", () => {
+    const p = waterAreaFromStats(obs, stats([100], [3], 900), 0.5);
+    expect(p.noDataFraction).toBeCloseTo(0.8, 6);
   });
 
   it("returns an empty point when there is no histogram", () => {
@@ -93,5 +108,51 @@ describe("priority mosaic tilejson URL", () => {
     const plain = new URL(buildTileJsonUrl(base));
     expect(plain.searchParams.get("assets")).toBe("B01_WTR");
     expect(plain.searchParams.has("pixel_selection")).toBe(false);
+  });
+});
+
+describe("filterSeries", () => {
+  const pt = (masked: number, noData: number, error?: string) =>
+    ({
+      observationId: "o",
+      time: "2024-01-01T00:00:00Z",
+      sensor: "L8",
+      openKm2: 1,
+      partialKm2: 0,
+      maskedFraction: masked,
+      noDataFraction: noData,
+      pixels: 10,
+      totalPixels: 10,
+      error,
+    }) as WaterAreaPoint;
+
+  it("keeps everything with no limits", () => {
+    expect(filterSeries([pt(0.9, 0.9)], {})).toHaveLength(1);
+  });
+  it("drops points over the masked or no-data limit", () => {
+    const pts = [pt(0.1, 0.1), pt(0.6, 0.1), pt(0.1, 0.6)];
+    expect(filterSeries(pts, { maxMasked: 0.5 })).toHaveLength(2);
+    expect(filterSeries(pts, { maxNoData: 0.5 })).toHaveLength(2);
+    expect(filterSeries(pts, { maxMasked: 0.5, maxNoData: 0.5 })).toHaveLength(1);
+  });
+  it("keeps errored points", () => {
+    expect(filterSeries([pt(0.9, 0.9, "boom")], { maxMasked: 0.1 })).toHaveLength(1);
+  });
+});
+
+describe("polygonBboxFraction", () => {
+  const poly = (ring: number[][]) => ({
+    type: "Feature",
+    properties: {},
+    geometry: { type: "Polygon", coordinates: [ring] },
+  });
+  it("is 1 for a rectangle", () => {
+    expect(polygonBboxFraction(poly([[0, 0], [2, 0], [2, 1], [0, 1], [0, 0]]))).toBeCloseTo(1, 6);
+  });
+  it("is 0.5 for a right triangle", () => {
+    expect(polygonBboxFraction(poly([[0, 0], [2, 0], [0, 1], [0, 0]]))).toBeCloseTo(0.5, 6);
+  });
+  it("falls back to 1 for non-polygons", () => {
+    expect(polygonBboxFraction(undefined)).toBe(1);
   });
 });
