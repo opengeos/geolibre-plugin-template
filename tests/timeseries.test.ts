@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterSeries,
   polygonBboxFraction,
+  S1_PROFILE,
   timeSeriesToCsv,
   waterAreaFromStats,
 } from "@/lib/dswx/timeseries";
@@ -154,5 +155,19 @@ describe("polygonBboxFraction", () => {
   });
   it("falls back to 1 for non-polygons", () => {
     expect(polygonBboxFraction(undefined)).toBe(1);
+  });
+});
+
+describe("DSWx-S1 profile", () => {
+  it("counts remapped class 2 as the second water series and 4 as masked", () => {
+    const p = waterAreaFromStats(
+      obs,
+      stats([10, 5, 4, 3, 2, 76], [1, 2, 3, 4, 4, 3], 0),
+      1,
+      S1_PROFILE,
+    );
+    expect(p.openKm2).toBeCloseTo(10 * 0.0009, 9);
+    expect(p.partialKm2).toBeCloseTo(5 * 0.0009, 9);
+    expect(p.maskedFraction).toBeCloseTo(0.05, 6);
   });
 });

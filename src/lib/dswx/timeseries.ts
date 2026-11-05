@@ -3,7 +3,10 @@
  * per observation, converted from class pixel counts to areas.
  */
 
-import { DSWX_HLS_PRIORITY_EXPRESSION } from "./colormaps";
+import {
+  DSWX_HLS_PRIORITY_EXPRESSION,
+  DSWX_S1_PRIORITY_EXPRESSION,
+} from "./colormaps";
 import { observationTemporal } from "./observations";
 import { DSWX_PIXEL_SIZE_METERS } from "./products";
 import {
@@ -21,6 +24,44 @@ export const PRIORITY_OPEN_WATER = 1;
 export const PRIORITY_PARTIAL_WATER = 2;
 /** Snow/ice (4), cloud/shadow (5) and any other class (6, e.g. ocean masked). */
 const PRIORITY_MASKED = [4, 5, 6];
+
+/** Class handling and chart labels for one DSWx product family. */
+export interface SeriesProfile {
+  /** Band-math remap applied before the mosaic, if any. */
+  expression?: string;
+  /** Mosaic method; undefined keeps the server default. */
+  pixelSelection?: "lowest";
+  openClass: number;
+  partialClass: number;
+  maskedClasses: number[];
+  partialLabel: string;
+  maskedLabel: string;
+}
+
+export const HLS_PROFILE: SeriesProfile = {
+  expression: PRIORITY_EXPRESSION,
+  pixelSelection: "lowest",
+  openClass: PRIORITY_OPEN_WATER,
+  partialClass: PRIORITY_PARTIAL_WATER,
+  maskedClasses: PRIORITY_MASKED,
+  partialLabel: "partial water",
+  maskedLabel: "cloud, snow/ice",
+};
+
+/** DSWx-S1 remap: 1 open water, 2 inundated vegetation, 3 not water, 4 HAND/layover-shadow masks, 5 other. */
+export const S1_PROFILE: SeriesProfile = {
+  expression: DSWX_S1_PRIORITY_EXPRESSION,
+  pixelSelection: "lowest",
+  openClass: 1,
+  partialClass: 2,
+  maskedClasses: [4, 5],
+  partialLabel: "inundated vegetation",
+  maskedLabel: "HAND, layover/shadow",
+};
+
+export function seriesProfile(shortName: string): SeriesProfile {
+  return /DSWX-S1/i.test(shortName) ? S1_PROFILE : HLS_PROFILE;
+}
 
 export interface WaterAreaPoint {
   observationId: string;
@@ -78,6 +119,7 @@ export function waterAreaFromStats(
   obs: Pick<Observation, "id" | "start" | "sensor">,
   stats: BandStatistics | undefined,
   polygonFraction = 1,
+  profile: SeriesProfile = HLS_PROFILE,
 ): WaterAreaPoint {
   const base = { observationId: obs.id, time: obs.start, sensor: obs.sensor };
   const empty = {
@@ -99,9 +141,9 @@ export function waterAreaFromStats(
   classes.forEach((cls, i) => {
     const n = counts[i] ?? 0;
     valid += n;
-    if (cls === PRIORITY_OPEN_WATER) open += n;
-    else if (cls === PRIORITY_PARTIAL_WATER) partial += n;
-    else if (PRIORITY_MASKED.includes(cls)) masked += n;
+    if (cls === profile.openClass) open += n;
+    else if (cls === profile.partialClass) partial += n;
+    else if (profile.maskedClasses.includes(cls)) masked += n;
   });
   const boxPixels = valid + (stats.maskedPixels ?? 0);
   const noData = Math.max(0, boxPixels * polygonFraction - valid);
@@ -124,6 +166,8 @@ export interface TimeSeriesOptions {
   backend: TitilerBackend;
   /** Water-classification band, e.g. "B01_WTR". */
   band: string;
+  /** Class handling for the product; defaults to DSWx-HLS. */
+  profile?: SeriesProfile;
   bandsRegex?: string;
   /** GeoJSON Feature/FeatureCollection AOI. */
   aoi: unknown;
@@ -146,6 +190,7 @@ export async function computeWaterTimeSeries(
   );
   const results: WaterAreaPoint[] = new Array(queue.length);
   const polygonFraction = polygonBboxFraction(opts.aoi);
+  const profile = opts.profile ?? HLS_PROFILE;
   let next = 0;
   let done = 0;
 
@@ -162,16 +207,16 @@ export async function computeWaterTimeSeries(
           bands: [opts.band],
           bandsRegex: opts.bandsRegex,
           categorical: true,
-          expression: PRIORITY_EXPRESSION,
+          expression: profile.expression,
           // Read every granule in the window so overlaps resolve by priority.
-          pixelSelection: "lowest",
+          pixelSelection: profile.pixelSelection,
           exitWhenFull: false,
           skipCovered: false,
         });
         const { bands } = await fetchStatistics(url, opts.aoi);
         // A single requested band comes back keyed by its name or "b1".
         const stats = bands[opts.band] ?? Object.values(bands)[0];
-        results[index] = waterAreaFromStats(obs, stats, polygonFraction);
+        results[index] = waterAreaFromStats(obs, stats, polygonFraction, profile);
       } catch (err) {
         results[index] = {
           ...waterAreaFromStats(obs, undefined),

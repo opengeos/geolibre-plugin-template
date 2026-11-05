@@ -7,9 +7,9 @@ import {
 } from "../dswx/cmr";
 import {
   colormapForBand,
-  DSWX_HLS_PRIORITY_COLORMAP,
-  DSWX_HLS_PRIORITY_EXPRESSION,
   isDswxWaterBand,
+  priorityColormap,
+  priorityExpression,
   supportsPriorityComposite,
 } from "../dswx/colormaps";
 import { bandRenderDefaults, DSWX_PRODUCTS, getProduct } from "../dswx/products";
@@ -22,6 +22,7 @@ import {
 import { groupObservations, observationTemporal } from "../dswx/observations";
 import {
   computeWaterTimeSeries,
+  seriesProfile,
   timeSeriesToCsv,
   filterSeries,
   type WaterAreaPoint,
@@ -520,11 +521,11 @@ export class DswxPanel {
             rescale,
             colormapName,
             colormap: priority
-              ? JSON.stringify(DSWX_HLS_PRIORITY_COLORMAP)
+              ? JSON.stringify(priorityColormap(product.shortName))
               : colormap,
             ...(priority
               ? {
-                  expression: DSWX_HLS_PRIORITY_EXPRESSION,
+                  expression: priorityExpression(product.shortName),
                   pixelSelection: "lowest",
                 }
               : {}),
@@ -692,8 +693,10 @@ export class DswxPanel {
       this._el.chart.replaceChildren(
         ...(points.length
           ? [
-              renderTimeSeriesChart(points, (i) =>
-                this._selectObservation(points[i].observationId),
+              renderTimeSeriesChart(
+                points,
+                (i) => this._selectObservation(points[i].observationId),
+                seriesProfile(this._state.product),
               ),
             ]
           : []),
@@ -739,6 +742,7 @@ export class DswxPanel {
         conceptId,
         backend: product.render.backend,
         band,
+        profile: seriesProfile(product.shortName),
         bandsRegex: product.render.bandsRegex,
         aoi: this._aoi,
         observations: this._observations,

@@ -76,6 +76,37 @@ export const DSWX_HLS_PRIORITY_COLORMAP: Record<string, Rgba> = {
   "6": DSWX_HLS_WTR_COLORMAP["254"], // other masked (ocean)
 };
 
+/**
+ * DSWx-S1 counterpart of {@link DSWX_HLS_PRIORITY_EXPRESSION}: open water (1),
+ * inundated vegetation (2, from class 3), not water (3, from 0), HAND and
+ * layover/shadow masks (4, from 250/251), anything else (5).
+ */
+export const DSWX_S1_PRIORITY_EXPRESSION =
+  "where(b1==1,1,where(b1==3,2,where(b1==0,3,where((b1==250)|(b1==251),4,5))))";
+
+/** Colormap keyed by the codes {@link DSWX_S1_PRIORITY_EXPRESSION} produces. */
+export const DSWX_S1_PRIORITY_COLORMAP: Record<string, Rgba> = {
+  "1": DSWX_S1_WTR_COLORMAP["1"], // open water
+  "2": DSWX_S1_WTR_COLORMAP["3"], // inundated vegetation
+  "3": DSWX_S1_WTR_COLORMAP["0"], // not water
+  "4": DSWX_S1_WTR_COLORMAP["251"], // HAND / layover-shadow masked
+  "5": DSWX_S1_WTR_COLORMAP["254"], // other
+};
+
+/** Priority remap expression for a product's WTR layers. */
+export function priorityExpression(shortName: string): string {
+  return /DSWX-S1/i.test(shortName)
+    ? DSWX_S1_PRIORITY_EXPRESSION
+    : DSWX_HLS_PRIORITY_EXPRESSION;
+}
+
+/** Colormap keyed by the product's priority codes. */
+export function priorityColormap(shortName: string): Record<string, Rgba> {
+  return /DSWX-S1/i.test(shortName)
+    ? DSWX_S1_PRIORITY_COLORMAP
+    : DSWX_HLS_PRIORITY_COLORMAP;
+}
+
 /** Human-readable labels for DSWx WTR class values, used in stats breakdowns. */
 export const DSWX_WTR_CLASS_LABELS: Record<string, string> = {
   "0": "Not water",
@@ -108,7 +139,7 @@ export function colormapForBand(
 
 /** Whether a product's WTR layers can use the priority-composite remap. */
 export function supportsPriorityComposite(shortName: string, band?: string): boolean {
-  return /DSWX-HLS/i.test(shortName) && !!band && /WTR/i.test(band);
+  return /DSWX-(HLS|S1)/i.test(shortName) && !!band && /WTR/i.test(band);
 }
 
 /**

@@ -52,10 +52,11 @@ describe("priority composite", () => {
     expect(m["5"]).toEqual(o["253"]); // cloud stays grey
   });
 
-  it("only applies to DSWx-HLS water bands", async () => {
+  it("applies to DSWx water bands only", async () => {
     const { supportsPriorityComposite: f } = await import("../src/lib/dswx/colormaps");
     expect(f("OPERA_L3_DSWX-HLS_V1", "B01_WTR")).toBe(true);
-    expect(f("OPERA_L3_DSWX-S1_V1", "B01_WTR")).toBe(false);
+    expect(f("OPERA_L3_DSWX-S1_V1", "B01_WTR")).toBe(true);
+    expect(f("OPERA_L3_DSWX-S1_V1", "B03_CONF")).toBe(false);
     expect(f("OPERA_L3_DSWX-HLS_V1", "B03_CONF")).toBe(false);
   });
 });
