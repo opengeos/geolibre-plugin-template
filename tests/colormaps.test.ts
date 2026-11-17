@@ -56,8 +56,15 @@ describe("priority composite", () => {
     const { supportsPriorityComposite: f } = await import("../src/lib/dswx/colormaps");
     expect(f("OPERA_L3_DSWX-HLS_V1", "B01_WTR")).toBe(true);
     expect(f("OPERA_L3_DSWX-S1_V1", "B01_WTR")).toBe(true);
-    expect(f("OPERA_L3_DSWX-S1_V1", "B03_CONF")).toBe(false);
+    expect(f("OPERA_L3_DSWX-S1_V1", "B03_CONF")).toBe(true);
     expect(f("OPERA_L3_DSWX-HLS_V1", "B03_CONF")).toBe(true);
+  });
+
+  it("remaps S1 CONF classes by priority", async () => {
+    const { priorityExpression: e, priorityColormap: c } = await import("../src/lib/dswx/colormaps");
+    expect(e("OPERA_L3_DSWX-S1_V1", "B02_CONF")).toContain("b1==35");
+    expect(e("OPERA_L3_DSWX-S1_V1", "B01_WTR")).not.toContain("b1==35");
+    expect(Object.keys(c("OPERA_L3_DSWX-S1_V1", "B02_CONF"))).toHaveLength(6);
   });
 
   it("remaps HLS CONF classes by priority", async () => {
