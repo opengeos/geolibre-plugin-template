@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   filterSeries,
+  HLS_CONF_PROFILE,
+  S1_CONF_PROFILE,
   polygonBboxFraction,
   S1_PROFILE,
   timeSeriesToCsv,
@@ -169,5 +171,32 @@ describe("DSWx-S1 profile", () => {
     expect(p.openKm2).toBeCloseTo(10 * 0.0009, 9);
     expect(p.partialKm2).toBeCloseTo(5 * 0.0009, 9);
     expect(p.maskedFraction).toBeCloseTo(0.05, 6);
+  });
+});
+
+describe("CONF profiles", () => {
+  it("HLS CONF reports four cumulative levels and groups masks", () => {
+    // remapped: 1 OSW high, 2 OSW med, 3 PSW high, 4 PSW med, 5 not water, 6 masks, 7 other
+    const p = waterAreaFromStats(
+      obs,
+      stats([10, 20, 30, 40, 800, 50, 50], [1, 2, 3, 4, 5, 6, 7]),
+      1,
+      HLS_CONF_PROFILE,
+    );
+    expect(p.classKm2.map((v) => Math.round(v / 0.0009))).toEqual([10, 20, 30, 40]);
+    expect(p.maskedFraction).toBeCloseTo(0.1, 6);
+    const header = timeSeriesToCsv([p], HLS_CONF_PROFILE).split("\n")[0];
+    expect(header).toBe(
+      "time,sensor,osw_high_km2,osw_medium_km2,psw_high_km2,psw_medium_km2,masked_fraction,nodata_fraction,pixels,status",
+    );
+  });
+  it("S1 CONF skips not-water (4) when accumulating", () => {
+    const p = waterAreaFromStats(
+      obs,
+      stats([10, 20, 30, 500, 40, 5], [1, 2, 3, 4, 5, 6]),
+      1,
+      S1_CONF_PROFILE,
+    );
+    expect(p.classKm2.map((v) => Math.round(v / 0.0009))).toEqual([10, 20, 30, 40]);
   });
 });

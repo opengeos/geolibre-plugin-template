@@ -12,7 +12,7 @@ function el<K extends keyof SVGElementTagNameMap>(
 }
 
 /**
- * Render open and partial water area over time as an SVG line chart, with the
+ * Render cumulative water area (one line per profile level) over time as an SVG line chart, with the
  * masked (cloud, snow/ice) and no-data shares of the AOI as bars on a right-hand
  * 0-100% axis. Points that errored or have no AOI pixels are skipped. `onSelect` fires
  * with the point index (into `points`) when a marker is clicked.
@@ -42,7 +42,8 @@ export function renderTimeSeriesChart(
   const times = valid.map(({ p }) => Date.parse(p.time));
   const t0 = Math.min(...times);
   const t1 = Math.max(...times);
-  const yMax = Math.max(...valid.map(({ p }) => p.openKm2 + p.partialKm2), 1e-9);
+  const total = (p: WaterAreaPoint) => p.classKm2.reduce((a, v) => a + v, 0);
+  const yMax = Math.max(...valid.map(({ p }) => total(p)), 1e-9);
   const x = (t: number) => m.l + (t1 === t0 ? (W - m.l - m.r) / 2 : ((t - t0) / (t1 - t0)) * (W - m.l - m.r));
   const y = (v: number) => H - m.b - (v / yMax) * (H - m.t - m.b);
 
@@ -70,10 +71,14 @@ export function renderTimeSeriesChart(
   label(new Date(t0).toISOString().slice(0, 10), { x: m.l, y: H - 6 });
   label(new Date(t1).toISOString().slice(0, 10), { x: W - m.r, y: H - 6, "text-anchor": "end" });
 
-  const series: Array<[string, (p: WaterAreaPoint) => number, string]> = [
-    ["Open water", (p) => p.openKm2, "#2563eb"],
-    [`Open + ${profile.partialLabel}`, (p) => p.openKm2 + p.partialKm2, "#93c5fd"],
-  ];
+  // One line per level: the running total of the classes up to that level.
+  const series: Array<[string, (p: WaterAreaPoint) => number, string]> = profile.levels.map(
+    (level, i) => [
+      level.label,
+      (p) => p.classKm2.slice(0, i + 1).reduce((a, v) => a + v, 0),
+      level.color,
+    ],
+  );
   const yPct = (f: number) => H - m.b - f * (H - m.t - m.b);
     const coverage: Array<[string, (p: WaterAreaPoint) => number, string]> = [
     [`Masked (${profile.maskedLabel})`, (p) => p.maskedFraction, "#6b7280"],

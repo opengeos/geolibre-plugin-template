@@ -21,7 +21,9 @@ import {
 import { groupObservations, observationTemporal } from "../dswx/observations";
 import {
   computeWaterTimeSeries,
+  HLS_PROFILE,
   seriesProfile,
+  type SeriesProfile,
   timeSeriesToCsv,
   filterSeries,
   type WaterAreaPoint,
@@ -118,6 +120,7 @@ export class DswxPanel {
   private _hasAoiLayer = false;
   private _series: WaterAreaPoint[] = [];
   private _seriesTitle = "";
+  private _seriesProfile: SeriesProfile = HLS_PROFILE;
   private _seriesAbort?: AbortController;
 
   private _el: Record<string, HTMLElement> = {};
@@ -170,8 +173,13 @@ export class DswxPanel {
         </div>
         <details data-k="tsSection"><summary>Water-area time series</summary>
           <div class="dswx-hint">Draw an area, then chart open and partial water
-            across every observation found by the search. Click to add vertices,
+            (WTR) or confidence classes (CONF) across every observation found by the search. Click to add vertices,
             double-click to finish, Esc to cancel.</div>
+          <div class="dswx-field"><label>Band</label>
+            <select data-k="seriesBand">
+              <option value="WTR">WTR (water classification)</option>
+              <option value="CONF">CONF (confidence)</option>
+            </select></div>
           <div class="dswx-field"><label>Group observations within</label>
             <select data-k="groupWindow">
               <option value="360">6 hours (as listed)</option>
@@ -712,7 +720,7 @@ export class DswxPanel {
               renderTimeSeriesChart(
                 points,
                 (i) => this._selectPointObservations(points[i]),
-                seriesProfile(this._state.product),
+                this._seriesProfile,
                 this._seriesTitle,
               ),
             ]
@@ -746,12 +754,21 @@ export class DswxPanel {
     this._readForm();
     const product = getProduct(this._state.product);
     if (!product || !this._aoi || this._observations.length === 0) return;
-    // The series is always built from the WTR layer, whatever is displayed.
-    const band = product.render.bands?.[0];
+    // WTR is the product's first band; CONF is found among the granule bands.
+    const wantConf = this._input("seriesBand").value === "CONF";
+    const confBand = this._observations
+      .flatMap((o) => o.granules.flatMap((g) => granuleBands(g).map((b) => b.token)))
+      .find((t) => /CONF/i.test(t));
+    if (wantConf && !confBand) {
+      this._setSeriesStatus("No CONF band in the searched observations.");
+      return;
+    }
+    const band = wantConf ? confBand : product.render.bands?.[0];
     if (!band) {
       this._setSeriesStatus("No water-classification band for this product.");
       return;
     }
+    const profile = seriesProfile(product.shortName, band);
     this._seriesAbort?.abort();
     const abort = (this._seriesAbort = new AbortController());
     this._el.runSeries.setAttribute("disabled", "");
@@ -772,7 +789,7 @@ export class DswxPanel {
         conceptId,
         backend: product.render.backend,
         band,
-        profile: seriesProfile(product.shortName),
+        profile,
         bandsRegex: product.render.bandsRegex,
         aoi: this._aoi,
         observations,
@@ -780,7 +797,8 @@ export class DswxPanel {
         onProgress: (done, n) => this._setSeriesStatus(`Computing ${done}/${n}…`),
       });
       if (abort.signal.aborted) return;
-      this._seriesTitle = `${product.shortTitle} WTR Time Series [${compositeLabel(windowMinutes)} Composite]`;
+      this._seriesProfile = profile;
+      this._seriesTitle = `${product.shortTitle} ${profile.bandName} Time Series [${compositeLabel(windowMinutes)} Composite]`;
       this._setSeries(points);
       const failed = points.filter((p) => p.error).length;
       this._setSeriesStatus(
@@ -799,7 +817,7 @@ export class DswxPanel {
 
   private _onExportSeries(): void {
     if (this._series.length === 0) return;
-    this._options.exportText?.("dswx-water-area.csv", timeSeriesToCsv(this._filteredSeries()));
+    this._options.exportText?.("dswx-water-area.csv", timeSeriesToCsv(this._filteredSeries(), this._seriesProfile));
   }
 
   private _clearDisplayed(): void {

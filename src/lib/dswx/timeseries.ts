@@ -4,7 +4,9 @@
  */
 
 import {
+  DSWX_HLS_CONF_PRIORITY_EXPRESSION,
   DSWX_HLS_PRIORITY_EXPRESSION,
+  DSWX_S1_CONF_PRIORITY_EXPRESSION,
   DSWX_S1_PRIORITY_EXPRESSION,
 } from "./colormaps";
 import { observationTemporal } from "./observations";
@@ -19,48 +21,94 @@ import type { Observation, TitilerBackend } from "./types";
 /** Priority remap applied before the `lowest` mosaic; see colormaps.ts. */
 export const PRIORITY_EXPRESSION = DSWX_HLS_PRIORITY_EXPRESSION;
 
-/** Remapped class codes produced by {@link PRIORITY_EXPRESSION}. */
-export const PRIORITY_OPEN_WATER = 1;
-export const PRIORITY_PARTIAL_WATER = 2;
-/** Snow/ice (4), cloud/shadow (5) and any other class (6, e.g. ocean masked). */
-const PRIORITY_MASKED = [4, 5, 6];
+/** One cumulative water line: the remapped class it adds and its names. */
+export interface WaterLevel {
+  /** Remapped class code added to the classes before it. */
+  cls: number;
+  /** Chart legend name of the cumulative line ending at this level. */
+  label: string;
+  /** CSV column holding this class alone. */
+  column: string;
+  color: string;
+}
 
-/** Class handling and chart labels for one DSWx product family. */
+/** Class handling and chart labels for one DSWx band of a product family. */
 export interface SeriesProfile {
   /** Band-math remap applied before the mosaic, if any. */
   expression?: string;
   /** Mosaic method; undefined keeps the server default. */
   pixelSelection?: "lowest";
-  openClass: number;
-  partialClass: number;
+  /** Water classes in priority order; chart lines are their running totals. */
+  levels: WaterLevel[];
   maskedClasses: number[];
-  partialLabel: string;
   maskedLabel: string;
+  /** Band suffix shown in the chart title. */
+  bandName: string;
 }
 
+const BLUES2 = ["#2563eb", "#93c5fd"];
+const BLUES4 = ["#1e40af", "#2563eb", "#60a5fa", "#bfdbfe"];
+
+/** Remapped codes: 1 open water, 2 partial water, 3 not water, 4 snow/ice, 5 cloud, 6 other. */
 export const HLS_PROFILE: SeriesProfile = {
   expression: PRIORITY_EXPRESSION,
   pixelSelection: "lowest",
-  openClass: PRIORITY_OPEN_WATER,
-  partialClass: PRIORITY_PARTIAL_WATER,
-  maskedClasses: PRIORITY_MASKED,
-  partialLabel: "partial water",
+  levels: [
+    { cls: 1, label: "Open water", column: "open_water_km2", color: BLUES2[0] },
+    { cls: 2, label: "Open + partial water", column: "partial_water_km2", color: BLUES2[1] },
+  ],
+  maskedClasses: [4, 5, 6],
   maskedLabel: "cloud, snow/ice",
+  bandName: "WTR",
 };
 
 /** DSWx-S1 remap: 1 open water, 2 inundated vegetation, 3 not water, 4 HAND/layover-shadow masks, 5 other. */
 export const S1_PROFILE: SeriesProfile = {
   expression: DSWX_S1_PRIORITY_EXPRESSION,
   pixelSelection: "lowest",
-  openClass: 1,
-  partialClass: 2,
+  levels: [
+    { cls: 1, label: "Open water", column: "open_water_km2", color: BLUES2[0] },
+    { cls: 2, label: "Open + inundated vegetation", column: "partial_water_km2", color: BLUES2[1] },
+  ],
   maskedClasses: [4, 5],
-  partialLabel: "inundated vegetation",
   maskedLabel: "HAND, layover/shadow",
+  bandName: "WTR",
 };
 
-export function seriesProfile(shortName: string): SeriesProfile {
-  return /DSWX-S1/i.test(shortName) ? S1_PROFILE : HLS_PROFILE;
+/** HLS CONF remap: 1/2 open water high/medium, 3/4 partial water high/medium, 5 not water, 6 masks, 7 other. */
+export const HLS_CONF_PROFILE: SeriesProfile = {
+  expression: DSWX_HLS_CONF_PRIORITY_EXPRESSION,
+  pixelSelection: "lowest",
+  levels: [
+    { cls: 1, label: "OSW high conf.", column: "osw_high_km2", color: BLUES4[0] },
+    { cls: 2, label: "+ OSW medium conf.", column: "osw_medium_km2", color: BLUES4[1] },
+    { cls: 3, label: "+ PSW high conf.", column: "psw_high_km2", color: BLUES4[2] },
+    { cls: 4, label: "+ PSW medium conf.", column: "psw_medium_km2", color: BLUES4[3] },
+  ],
+  maskedClasses: [6, 7],
+  maskedLabel: "cloud, snow/ice",
+  bandName: "CONF",
+};
+
+/** S1 CONF remap: 1/2 open water high/medium, 3 inundated veg. in wetland mask, 4 not water, 5 inundated veg. outside it, 6 masks. */
+export const S1_CONF_PROFILE: SeriesProfile = {
+  expression: DSWX_S1_CONF_PRIORITY_EXPRESSION,
+  pixelSelection: "lowest",
+  levels: [
+    { cls: 1, label: "OSW high conf.", column: "osw_high_km2", color: BLUES4[0] },
+    { cls: 2, label: "+ OSW medium conf.", column: "osw_medium_km2", color: BLUES4[1] },
+    { cls: 3, label: "+ IV (wetland)", column: "iv_wetland_km2", color: BLUES4[2] },
+    { cls: 5, label: "+ IV (non-wetland)", column: "iv_other_km2", color: BLUES4[3] },
+  ],
+  maskedClasses: [6],
+  maskedLabel: "masks",
+  bandName: "CONF",
+};
+
+export function seriesProfile(shortName: string, band?: string): SeriesProfile {
+  const conf = !!band && /CONF/i.test(band);
+  if (/DSWX-S1/i.test(shortName)) return conf ? S1_CONF_PROFILE : S1_PROFILE;
+  return conf ? HLS_CONF_PROFILE : HLS_PROFILE;
 }
 
 export interface WaterAreaPoint {
@@ -70,7 +118,11 @@ export interface WaterAreaPoint {
   /** Observation start (ISO). */
   time: string;
   sensor: string;
+  /** Area of each profile level's class alone (km²), in level order. */
+  classKm2: number[];
+  /** Area of the first level (open water / OSW high confidence). */
   openKm2: number;
+  /** Area of every later level combined. */
   partialKm2: number;
   /** Fraction (0-1) of AOI pixels that are cloud, snow/ice or other masks. */
   maskedFraction: number;
@@ -130,8 +182,9 @@ export function waterAreaFromStats(
     time: obs.start,
     sensor: obs.sensor,
   };
-  const empty = {
+  const empty: WaterAreaPoint = {
     ...base,
+    classKm2: profile.levels.map(() => 0),
     openKm2: 0,
     partialKm2: 0,
     maskedFraction: 0,
@@ -142,15 +195,14 @@ export function waterAreaFromStats(
   const hist = stats?.histogram;
   if (!stats || !hist) return empty;
   const [counts, classes] = hist;
-  let open = 0;
-  let partial = 0;
+  const levelPixels = profile.levels.map(() => 0);
   let masked = 0;
   let valid = 0;
   classes.forEach((cls, i) => {
     const n = counts[i] ?? 0;
     valid += n;
-    if (cls === profile.openClass) open += n;
-    else if (cls === profile.partialClass) partial += n;
+    const level = profile.levels.findIndex((l) => l.cls === cls);
+    if (level >= 0) levelPixels[level] += n;
     else if (profile.maskedClasses.includes(cls)) masked += n;
   });
   const boxPixels = valid + (stats.maskedPixels ?? 0);
@@ -159,8 +211,9 @@ export function waterAreaFromStats(
   if (!total) return empty;
   return {
     ...base,
-    openKm2: open * KM2_PER_PIXEL,
-    partialKm2: partial * KM2_PER_PIXEL,
+    classKm2: levelPixels.map((n) => n * KM2_PER_PIXEL),
+    openKm2: levelPixels[0] * KM2_PER_PIXEL,
+    partialKm2: levelPixels.slice(1).reduce((a, n) => a + n, 0) * KM2_PER_PIXEL,
     maskedFraction: masked / total,
     noDataFraction: noData / total,
     pixels: valid,
@@ -172,7 +225,7 @@ export interface TimeSeriesOptions {
   endpoint: string;
   conceptId: string;
   backend: TitilerBackend;
-  /** Water-classification band, e.g. "B01_WTR". */
+  /** Band to analyse, e.g. "B01_WTR" or "B03_CONF". */
   band: string;
   /** Class handling for the product; defaults to DSWx-HLS. */
   profile?: SeriesProfile;
@@ -227,7 +280,7 @@ export async function computeWaterTimeSeries(
         results[index] = waterAreaFromStats(obs, stats, polygonFraction, profile);
       } catch (err) {
         results[index] = {
-          ...waterAreaFromStats(obs, undefined),
+          ...waterAreaFromStats(obs, undefined, 1, profile),
           error: err instanceof Error ? err.message : String(err),
         };
       }
@@ -241,13 +294,15 @@ export async function computeWaterTimeSeries(
 }
 
 /** CSV export of a series (RFC 4180 quoting is unnecessary: no free text). */
-export function timeSeriesToCsv(points: WaterAreaPoint[]): string {
+export function timeSeriesToCsv(
+  points: WaterAreaPoint[],
+  profile: SeriesProfile = HLS_PROFILE,
+): string {
   const rows = points.map((p) =>
     [
       p.time,
       p.sensor,
-      p.openKm2.toFixed(4),
-      p.partialKm2.toFixed(4),
+      ...profile.levels.map((_, i) => (p.classKm2[i] ?? 0).toFixed(4)),
       p.maskedFraction.toFixed(4),
       p.noDataFraction.toFixed(4),
       p.pixels,
@@ -255,7 +310,7 @@ export function timeSeriesToCsv(points: WaterAreaPoint[]): string {
     ].join(","),
   );
   return [
-    "time,sensor,open_water_km2,partial_water_km2,masked_fraction,nodata_fraction,pixels,status",
+    ["time", "sensor", ...profile.levels.map((l) => l.column), "masked_fraction", "nodata_fraction", "pixels", "status"].join(","),
     ...rows,
   ].join("\n");
 }
