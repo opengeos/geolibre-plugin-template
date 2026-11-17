@@ -93,17 +93,44 @@ export const DSWX_S1_PRIORITY_COLORMAP: Record<string, Rgba> = {
   "5": DSWX_S1_WTR_COLORMAP["254"], // other
 };
 
-/** Priority remap expression for a product's WTR layers. */
-export function priorityExpression(shortName: string): string {
-  return /DSWX-S1/i.test(shortName)
-    ? DSWX_S1_PRIORITY_EXPRESSION
+/**
+ * DSWx-HLS CONF counterpart: open water high confidence (1, from class 1), open
+ * water medium (2, from 2), partial water high (3, from 3), partial water medium
+ * (4, from 4), no water (5, from 0), cloud and snow/ice masks (6, from 10-14 and
+ * 20-24, grouped for now), anything else (7).
+ */
+export const DSWX_HLS_CONF_PRIORITY_EXPRESSION =
+  "where(b1==1,1,where(b1==2,2,where(b1==3,3,where(b1==4,4,where(b1==0,5,where(((b1>=10)&(b1<=14))|((b1>=20)&(b1<=24)),6,7))))))";
+
+/** Colormap keyed by the codes {@link DSWX_HLS_CONF_PRIORITY_EXPRESSION} produces. */
+export const DSWX_HLS_CONF_PRIORITY_COLORMAP: Record<string, Rgba> = {
+  "1": [0, 0, 255, 255], // open water, high confidence
+  "2": [90, 140, 255, 255], // open water, medium confidence
+  "3": [150, 200, 240, 255], // partial surface water, high confidence
+  "4": [200, 225, 245, 255], // partial surface water, medium confidence
+  "5": WHITE, // no water
+  "6": [175, 175, 175, 255], // cloud / snow-ice masks
+  "7": [0, 0, 127, 255], // other
+};
+
+const isConfBand = (band?: string) => !!band && /CONF/i.test(band);
+
+/** Priority remap expression for a product's layers. */
+export function priorityExpression(shortName: string, band?: string): string {
+  if (/DSWX-S1/i.test(shortName)) return DSWX_S1_PRIORITY_EXPRESSION;
+  return isConfBand(band)
+    ? DSWX_HLS_CONF_PRIORITY_EXPRESSION
     : DSWX_HLS_PRIORITY_EXPRESSION;
 }
 
 /** Colormap keyed by the product's priority codes. */
-export function priorityColormap(shortName: string): Record<string, Rgba> {
-  return /DSWX-S1/i.test(shortName)
-    ? DSWX_S1_PRIORITY_COLORMAP
+export function priorityColormap(
+  shortName: string,
+  band?: string,
+): Record<string, Rgba> {
+  if (/DSWX-S1/i.test(shortName)) return DSWX_S1_PRIORITY_COLORMAP;
+  return isConfBand(band)
+    ? DSWX_HLS_CONF_PRIORITY_COLORMAP
     : DSWX_HLS_PRIORITY_COLORMAP;
 }
 
@@ -137,9 +164,11 @@ export function colormapForBand(
   );
 }
 
-/** Whether a product's WTR layers can use the priority-composite remap. */
+/** Whether a band can use the priority-composite remap (HLS WTR/CONF, S1 WTR). */
 export function supportsPriorityComposite(shortName: string, band?: string): boolean {
-  return /DSWX-(HLS|S1)/i.test(shortName) && !!band && /WTR/i.test(band);
+  if (!band) return false;
+  if (/DSWX-HLS/i.test(shortName)) return /WTR|CONF/i.test(band);
+  return /DSWX-S1/i.test(shortName) && /WTR/i.test(band);
 }
 
 /**

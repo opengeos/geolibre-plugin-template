@@ -503,17 +503,19 @@ export class DswxPanel {
     }
     const band = this._state.band || product.render.bands?.[0];
     const hints = bandRenderDefaults(band);
-    const rescale = hints.rescale || product.render.rescale;
-    const colormapName = hints.colormapName || product.render.colormapName;
-    // A named colormap overrides the categorical class colormap.
-    const colormap = colormapName
-      ? undefined
-      : colormapForBand(product.shortName, band);
-
     // Water classification: remap classes so overlaps resolve by priority
     // (water first) with a `lowest` mosaic. Pixel values on the layer are then
     // priority codes, so the colormap is keyed to them.
     const priority = supportsPriorityComposite(product.shortName, band);
+    // The categorical priority colormap replaces any continuous rescale/named map.
+    const rescale = priority ? undefined : hints.rescale || product.render.rescale;
+    const colormapName = priority
+      ? undefined
+      : hints.colormapName || product.render.colormapName;
+    // A named colormap overrides the categorical class colormap.
+    const colormap = colormapName
+      ? undefined
+      : colormapForBand(product.shortName, band);
 
     this._el.display.setAttribute("disabled", "");
     this._setStatus(`Requesting ${selected.length} observation(s) from titiler-cmr…`);
@@ -535,11 +537,11 @@ export class DswxPanel {
             rescale,
             colormapName,
             colormap: priority
-              ? JSON.stringify(priorityColormap(product.shortName))
+              ? JSON.stringify(priorityColormap(product.shortName, band))
               : colormap,
             ...(priority
               ? {
-                  expression: priorityExpression(product.shortName),
+                  expression: priorityExpression(product.shortName, band),
                   pixelSelection: "lowest",
                 }
               : {}),
